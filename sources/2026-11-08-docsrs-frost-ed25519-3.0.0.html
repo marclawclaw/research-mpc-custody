@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="An implementation of Schnorr signatures on the secp256k1 curve (Taproot) for both single and threshold numbers of signers (FROST)."><title>frost_secp256k1_tr - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="/-/rustdoc.static/${f}">`).join(""))</script><link rel="stylesheet" href="/-/rustdoc.static/normalize-9960930a.css"><link rel="stylesheet" href="/-/static/v/c6adc0736ae17c7d/vendored.css" media="all" /><link rel="stylesheet" href="/-/rustdoc.static/rustdoc-203241e4.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="/-/rustdoc.static/" data-current-crate="frost_secp256k1_tr" data-themes="" data-resource-suffix="-20260922-1.100.0-nightly-6bb1652a0" data-rustdoc-version="1.100.0-nightly (6bb1652a0 2026-09-22)" data-channel="nightly" data-search-js="search-b167f383.js" data-stringdex-js="stringdex-b5109af9.js" data-settings-js="settings-170eb4bf.js" ><script src="/-/rustdoc.static/storage-41dd4d93.js"></script><script defer src="../crates-20260922-1.100.0-nightly-6bb1652a0.js"></script><script defer src="/-/rustdoc.static/main-1814ead3.js"></script><noscript><link rel="stylesheet" href="/-/rustdoc.static/noscript-9f56287d.css"></noscript><link rel="alternate icon" type="image/png" href="/-/rustdoc.static/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="/-/rustdoc.static/favicon-044be391.svg"><link rel="stylesheet" href="/-/static/v/c6adc0736ae17c7d/rustdoc-2025-08-20.css" media="all" /><link rel="stylesheet" href="/-/static/v/c6adc0736ae17c7d/font-awesome.css" media="all" />
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="An implementation of Schnorr signatures on the Ed25519 curve for both single and threshold numbers of signers (FROST)."><title>frost_ed25519 - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="/-/rustdoc.static/${f}">`).join(""))</script><link rel="stylesheet" href="/-/rustdoc.static/normalize-9960930a.css"><link rel="stylesheet" href="/-/static/v/c6adc0736ae17c7d/vendored.css" media="all" /><link rel="stylesheet" href="/-/rustdoc.static/rustdoc-203241e4.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="/-/rustdoc.static/" data-current-crate="frost_ed25519" data-themes="" data-resource-suffix="-20260922-1.100.0-nightly-6bb1652a0" data-rustdoc-version="1.100.0-nightly (6bb1652a0 2026-09-22)" data-channel="nightly" data-search-js="search-b167f383.js" data-stringdex-js="stringdex-b5109af9.js" data-settings-js="settings-170eb4bf.js" ><script src="/-/rustdoc.static/storage-41dd4d93.js"></script><script defer src="../crates-20260922-1.100.0-nightly-6bb1652a0.js"></script><script defer src="/-/rustdoc.static/main-1814ead3.js"></script><noscript><link rel="stylesheet" href="/-/rustdoc.static/noscript-9f56287d.css"></noscript><link rel="alternate icon" type="image/png" href="/-/rustdoc.static/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="/-/rustdoc.static/favicon-044be391.svg"><link rel="stylesheet" href="/-/static/v/c6adc0736ae17c7d/rustdoc-2025-08-20.css" media="all" /><link rel="stylesheet" href="/-/static/v/c6adc0736ae17c7d/font-awesome.css" media="all" />
 
 <link rel="search" href="/-/static/v/c6adc0736ae17c7d/opensearch.xml" type="application/opensearchdescription+xml" title="Docs.rs" />
 
@@ -40,21 +40,21 @@
     <script id="crate-metadata" type="application/json">
         
         {
-            "name": "frost-secp256k1-tr",
+            "name": "frost-ed25519",
             "version": "3.0.0"
         }
     </script><li class="pure-menu-item pure-menu-has-children crate-dropdown">
-            <a href="#" class="pure-menu-link crate-name" title="A Schnorr signature scheme over the secp256k1 curve that supports FROST and Taproot.">
+            <a href="#" class="pure-menu-link crate-name" title="A Schnorr signature scheme over Ed25519 that supports FROST.">
                 <span class="fa fa-solid fa-cube " aria-hidden="true"></span>
-                <span class="title">frost-secp256k1-tr-3.0.0</span>
+                <span class="title">frost-ed25519-3.0.0</span>
             </a><div class="pure-menu-children package-details-menu">
                 
                 <ul class="pure-menu-list menu-item-divided">
                     <li class="pure-menu-heading" id="crate-title">
-                        frost-secp256k1-tr 3.0.0
+                        frost-ed25519 3.0.0
                         <span id="clipboard" class="svg-clipboard" title="Copy crate name and version information"></span>
                     </li><li class="pure-menu-item">
-                        <a href="/crate/frost-secp256k1-tr/3.0.0" class="pure-menu-link description" title="See frost-secp256k1-tr in docs.rs">
+                        <a href="/crate/frost-ed25519/3.0.0" class="pure-menu-link description" title="See frost-ed25519 in docs.rs">
                             <span class="fa fa-solid fa-cube " aria-hidden="true"></span> Docs.rs crate page
                         </a>
                     </li><li class="pure-menu-item">
@@ -76,14 +76,14 @@
                                         <span class="fa fa-solid fa-code-branch " aria-hidden="true"></span> Repository
                                     </a>
                                 </li><li class="pure-menu-item">
-                                <a href="https://crates.io/crates/frost-secp256k1-tr" class="pure-menu-link" title="See frost-secp256k1-tr in crates.io">
+                                <a href="https://crates.io/crates/frost-ed25519" class="pure-menu-link" title="See frost-ed25519 in crates.io">
                                     <span class="fa fa-solid fa-cube " aria-hidden="true"></span> crates.io
                                 </a>
                             </li>
 
                             
                             <li class="pure-menu-item">
-                                <a href="/crate/frost-secp256k1-tr/3.0.0/source/" title="Browse source of frost-secp256k1-tr-3.0.0" class="pure-menu-link">
+                                <a href="/crate/frost-ed25519/3.0.0/source/" title="Browse source of frost-ed25519-3.0.0" class="pure-menu-link">
                                     <span class="fa fa-solid fa-folder-open " aria-hidden="true"></span> Source
                                 </a>
                             </li>
@@ -115,7 +115,14 @@
                             <li class="pure-menu-item">
                                 <div class="pure-menu pure-menu-scrollable sub-menu" tabindex="-1">
                                     <ul class="pure-menu-list">
-                                        <li class="pure-menu-item"><a href="/document-features/^0.2.7/" class="pure-menu-link">
+                                        <li class="pure-menu-item"><a href="/curve25519-dalek/=4.1.3/" class="pure-menu-link">
+                curve25519-dalek =4.1.3
+                
+                    <i class="dependencies normal">normal</i>
+                    
+                
+            </a>
+        </li><li class="pure-menu-item"><a href="/document-features/^0.2.7/" class="pure-menu-link">
                 document-features ^0.2.7
                 
                     <i class="dependencies normal">normal</i>
@@ -131,13 +138,6 @@
             </a>
         </li><li class="pure-menu-item"><a href="/frost-rerandomized/^3.0.0/" class="pure-menu-link">
                 frost-rerandomized ^3.0.0
-                
-                    <i class="dependencies normal">normal</i>
-                    
-                
-            </a>
-        </li><li class="pure-menu-item"><a href="/k256/^0.13.0/" class="pure-menu-link">
-                k256 ^0.13.0
                 
                     <i class="dependencies normal">normal</i>
                     
@@ -159,6 +159,13 @@
             </a>
         </li><li class="pure-menu-item"><a href="/criterion/^0.6/" class="pure-menu-link">
                 criterion ^0.6
+                
+                    <i class="dependencies dev">dev</i>
+                    
+                
+            </a>
+        </li><li class="pure-menu-item"><a href="/ed25519-dalek/^2.1.0/" class="pure-menu-link">
+                ed25519-dalek ^2.1.0
                 
                     <i class="dependencies dev">dev</i>
                     
@@ -220,13 +227,6 @@
                     
                 
             </a>
-        </li><li class="pure-menu-item"><a href="/secp256k1/^0.31.0/" class="pure-menu-link">
-                secp256k1 ^0.31.0
-                
-                    <i class="dependencies dev">dev</i>
-                    
-                
-            </a>
         </li><li class="pure-menu-item"><a href="/serde_json/^1.0/" class="pure-menu-link">
                 serde_json ^1.0
                 
@@ -253,7 +253,7 @@
                             <li class="pure-menu-heading">Versions</li>
 
                             <li class="pure-menu-item">
-                                <div class="pure-menu pure-menu-scrollable sub-menu" id="releases-list" tabindex="-1" data-url="/crate/frost-secp256k1-tr/3.0.0/menus/releases/frost_secp256k1_tr/">
+                                <div class="pure-menu pure-menu-scrollable sub-menu" id="releases-list" tabindex="-1" data-url="/crate/frost-ed25519/3.0.0/menus/releases/frost_ed25519/">
                                     <span class="rotate"><span class="fa fa-solid fa-spinner " aria-hidden="true"></span></span>
                                 </div>
                             </li>
@@ -266,7 +266,7 @@
                         <div class="pure-u-1">
                             <ul class="pure-menu-list">
                                 <li>
-                                    <a href="/crate/frost-secp256k1-tr/3.0.0" class="pure-menu-link">
+                                    <a href="/crate/frost-ed25519/3.0.0" class="pure-menu-link">
                                         <b>100%</b>
                                         of the crate is documented
                                     </a>
@@ -281,18 +281,18 @@
                 </a>
 
                 
-                <ul class="pure-menu-children" id="platforms" data-url="/crate/frost-secp256k1-tr/3.0.0/menus/platforms/frost_secp256k1_tr/"><li class="pure-menu-item">
-            <a href="/crate/frost-secp256k1-tr/3.0.0/target-redirect/frost_secp256k1_tr/" class="pure-menu-link" data-fragment="retain" rel="nofollow">x86_64-unknown-linux-gnu</a>
+                <ul class="pure-menu-children" id="platforms" data-url="/crate/frost-ed25519/3.0.0/menus/platforms/frost_ed25519/"><li class="pure-menu-item">
+            <a href="/crate/frost-ed25519/3.0.0/target-redirect/frost_ed25519/" class="pure-menu-link" data-fragment="retain" rel="nofollow">x86_64-unknown-linux-gnu</a>
         </li></ul>
             </li><li class="pure-menu-item">
-                <a href="/crate/frost-secp256k1-tr/3.0.0/features" title="Browse available feature flags of frost-secp256k1-tr-3.0.0" class="pure-menu-link">
+                <a href="/crate/frost-ed25519/3.0.0/features" title="Browse available feature flags of frost-ed25519-3.0.0" class="pure-menu-link">
                     <span class="fa fa-solid fa-flag " aria-hidden="true"></span>
                     <span class="title">Feature flags</span>
                 </a>
             </li>
         
     
-    <li id="crate-warnings" class="pure-menu-item hidden" data-url="/-/partial/crate-warnings/frost-secp256k1-tr/"></li>
+    <li id="crate-warnings" class="pure-menu-item hidden" data-url="/-/partial/crate-warnings/frost-ed25519/"></li>
 </ul><div class="spacer"></div>
                 
                 <div id="abnormalities" class="hidden"></div>
@@ -341,11 +341,11 @@
 <div id="alerts" class="hidden"></div><div class="rustdoc mod crate container-rustdoc" id="rustdoc_body_wrapper" tabindex="-1"><script async src="/-/static/v/c6adc0736ae17c7d/menu.js"></script>
 <script async src="/-/static/v/c6adc0736ae17c7d/index.js"></script>
 
-<iframe src="/-/storage-change-detection.html" width="0" height="0" style="display: none"></iframe><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Crate frost_secp256k1_tr</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../frost_secp256k1_tr/index.html">frost_<wbr>secp256k1_<wbr>tr</a><span class="version">3.0.0</span></h2></div><div class="sidebar-elems"><ul class="block"><li><a id="all-types" href="all.html">All Items</a></li></ul><section id="rustdoc-toc"><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#example-key-generation-with-trusted-dealer-and-frost-signing" title="Example: key generation with trusted dealer and FROST signing">Example: key generation with trusted dealer and FROST signing</a></li><li><a href="#features" title="Features">Features</a></li></ul><h3><a href="#reexports">Crate Items</a></h3><ul class="block"><li><a href="#reexports" title="Re-exports">Re-exports</a></li><li><a href="#modules" title="Modules">Modules</a></li><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#enums" title="Enums">Enums</a></li><li><a href="#traits" title="Traits">Traits</a></li><li><a href="#functions" title="Functions">Functions</a></li><li><a href="#types" title="Type Aliases">Type Aliases</a></li></ul></section><div id="rustdoc-modnav"></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1>Crate <span>frost_<wbr>secp256k1_<wbr>tr</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../src/frost_secp256k1_tr/lib.rs.html#1-917">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>An implementation of Schnorr signatures on the secp256k1 curve (Taproot) for both single and threshold numbers
+<iframe src="/-/storage-change-detection.html" width="0" height="0" style="display: none"></iframe><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Crate frost_ed25519</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../frost_ed25519/index.html">frost_<wbr>ed25519</a><span class="version">3.0.0</span></h2></div><div class="sidebar-elems"><ul class="block"><li><a id="all-types" href="all.html">All Items</a></li></ul><section id="rustdoc-toc"><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#example-key-generation-with-trusted-dealer-and-frost-signing" title="Example: key generation with trusted dealer and FROST signing">Example: key generation with trusted dealer and FROST signing</a></li><li><a href="#features" title="Features">Features</a></li></ul><h3><a href="#reexports">Crate Items</a></h3><ul class="block"><li><a href="#reexports" title="Re-exports">Re-exports</a></li><li><a href="#modules" title="Modules">Modules</a></li><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#enums" title="Enums">Enums</a></li><li><a href="#traits" title="Traits">Traits</a></li><li><a href="#functions" title="Functions">Functions</a></li><li><a href="#types" title="Type Aliases">Type Aliases</a></li></ul></section><div id="rustdoc-modnav"></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1>Crate <span>frost_<wbr>ed25519</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../src/frost_ed25519/lib.rs.html#1-444">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>An implementation of Schnorr signatures on the Ed25519 curve for both single and threshold numbers
 of signers (FROST).</p>
 <p>This crate is a re-export of the ciphersuite-generic
 <a href="https://crates.io/crates/frost-core">frost-core</a> crate, parametrized with the
-secp256k1 curve (Taproot). For more details, refer to <a href="https://frost.zfnd.org/">The ZF FROST
+Ed25519 curve. For more details, refer to <a href="https://frost.zfnd.org/">The ZF FROST
 Book</a>.</p>
 <!-- PLACEHOLDER -->
 <h3 id="example-key-generation-with-trusted-dealer-and-frost-signing"><a class="doc-anchor" href="#example-key-generation-with-trusted-dealer-and-frost-signing">§</a>Example: key generation with trusted dealer and FROST signing</h3>
@@ -353,7 +353,7 @@ Book</a>.</p>
 and aggregating the signature. Note that the example just simulates a distributed
 scenario in a single thread and it abstracts away any communication between peers.</p>
 
-<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>frost_secp256k1_tr <span class="kw">as </span>frost;
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>frost_ed25519 <span class="kw">as </span>frost;
 <span class="kw">use </span>std::collections::BTreeMap;
 
 <span class="kw">let </span><span class="kw-2">mut </span>rng = rand::rngs::OsRng;
@@ -449,10 +449,10 @@ can use <code>serde</code> to serialize structs with any encoder that supports
 <code>serde</code> (e.g. JSON with <code>serde_json</code>).</li>
 <li><strong><code>serialization</code></strong> <em>(enabled by default)</em> —  Enable a default serialization format. Enables <code>serde</code>.</li>
 </ul>
-</div></details><h2 id="reexports" class="section-header">Re-exports<a href="#reexports" class="anchor">§</a></h2><dl class="item-table reexports"><dt id="reexport.serde"><code>pub use frost_core::<a class="mod" href="https://docs.rs/serde/1.0.228/x86_64-unknown-linux-gnu/serde/index.html" title="mod serde">serde</a>;</code><wbr><span class="stab portability" title="Available on crate feature `serde` only"><code>serde</code></span></dt><dt id="reexport.rand_core"><code>pub use <a class="mod" href="https://docs.rs/rand_core/0.6.4/x86_64-unknown-linux-gnu/rand_core/index.html" title="mod rand_core">rand_core</a>;</code></dt></dl><h2 id="modules" class="section-header">Modules<a href="#modules" class="anchor">§</a></h2><dl class="item-table"><dt><a class="mod" href="keys/index.html" title="mod frost_secp256k1_tr::keys">keys</a></dt><dd>FROST(secp256k1, SHA-256) keys, key generation, key shares.</dd><dt><a class="mod" href="round1/index.html" title="mod frost_secp256k1_tr::round1">round1</a></dt><dd>FROST(secp256k1, SHA-256) Round 1 functionality and types.</dd><dt><a class="mod" href="round2/index.html" title="mod frost_secp256k1_tr::round2">round2</a></dt><dd>FROST(secp256k1, SHA-256) Round 2 functionality and types, for signature share generation.</dd></dl><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.Challenge.html" title="struct frost_secp256k1_tr::Challenge">Challenge</a></dt><dd>A type refinement for the scalar field element representing the per-message <em><a href="https://datatracker.ietf.org/doc/html/rfc9591#name-signature-challenge-computa">challenge</a></em>.</dd><dt><a class="struct" href="struct.GroupCommitment.html" title="struct frost_secp256k1_tr::GroupCommitment">Group<wbr>Commitment</a></dt><dd>The product of all signers’ individual commitments, published as part of the
-final signature.</dd><dt><a class="struct" href="struct.Secp256K1Group.html" title="struct frost_secp256k1_tr::Secp256K1Group">Secp256<wbr>K1Group</a></dt><dd>An implementation of the FROST(secp256k1, SHA-256) ciphersuite group.</dd><dt><a class="struct" href="struct.Secp256K1ScalarField.html" title="struct frost_secp256k1_tr::Secp256K1ScalarField">Secp256<wbr>K1Scalar<wbr>Field</a></dt><dd>An implementation of the FROST(secp256k1, SHA-256) ciphersuite scalar field.</dd><dt><a class="struct" href="struct.Secp256K1Sha256TR.html" title="struct frost_secp256k1_tr::Secp256K1Sha256TR">Secp256<wbr>K1Sha256TR</a></dt><dd>An implementation of the FROST(secp256k1, SHA-256) ciphersuite.</dd></dl><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.FieldError.html" title="enum frost_secp256k1_tr::FieldError">Field<wbr>Error</a></dt><dd>An error related to a scalar Field.</dd><dt><a class="enum" href="enum.GroupError.html" title="enum frost_secp256k1_tr::GroupError">Group<wbr>Error</a></dt><dd>An error related to a Group (usually an elliptic curve or constructed from one) or one of its Elements.</dd></dl><h2 id="traits" class="section-header">Traits<a href="#traits" class="anchor">§</a></h2><dl class="item-table"><dt><a class="trait" href="trait.Ciphersuite.html" title="trait frost_secp256k1_tr::Ciphersuite">Ciphersuite</a></dt><dd>A <a href="https://datatracker.ietf.org/doc/html/rfc9591#name-ciphersuites">FROST ciphersuite</a> specifies the underlying prime-order group details and cryptographic hash
-function.</dd><dt><a class="trait" href="trait.Field.html" title="trait frost_secp256k1_tr::Field">Field</a></dt><dd>A prime order finite field GF(q) over which all scalar values for our prime order group can be
-multiplied are defined.</dd><dt><a class="trait" href="trait.Group.html" title="trait frost_secp256k1_tr::Group">Group</a></dt><dd>A prime-order group (or subgroup) that provides everything we need to create and verify Schnorr
-signatures.</dd></dl><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.aggregate.html" title="fn frost_secp256k1_tr::aggregate">aggregate</a></dt><dd>Verifies each FROST(secp256k1, SHA-256) participant’s signature share, and if all are valid,
-aggregates the shares into a signature to publish.</dd><dt><a class="fn" href="fn.aggregate_with_tweak.html" title="fn frost_secp256k1_tr::aggregate_with_tweak">aggregate_<wbr>with_<wbr>tweak</a></dt><dd>Same as <a href="fn.aggregate.html" title="fn frost_secp256k1_tr::aggregate"><code>aggregate()</code></a>, but using a Taproot tweak as specified in BIP-341.</dd></dl><h2 id="types" class="section-header">Type Aliases<a href="#types" class="anchor">§</a></h2><dl class="item-table"><dt><a class="type" href="type.Element.html" title="type frost_secp256k1_tr::Element">Element</a></dt><dd>An element of the <a href="trait.Ciphersuite.html" title="trait frost_secp256k1_tr::Ciphersuite"><code>Ciphersuite</code></a> <code>C</code>’s <a href="trait.Group.html" title="trait frost_secp256k1_tr::Group"><code>Group</code></a>.</dd><dt><a class="type" href="type.Error.html" title="type frost_secp256k1_tr::Error">Error</a></dt><dd>An error.</dd><dt><a class="type" href="type.Identifier.html" title="type frost_secp256k1_tr::Identifier">Identifier</a></dt><dd>A FROST(secp256k1, SHA-256) participant identifier.</dd><dt><a class="type" href="type.Signature.html" title="type frost_secp256k1_tr::Signature">Signature</a></dt><dd>A Schnorr signature on FROST(secp256k1, SHA-256).</dd><dt><a class="type" href="type.SigningKey.html" title="type frost_secp256k1_tr::SigningKey">Signing<wbr>Key</a></dt><dd>A signing key for a Schnorr signature on FROST(secp256k1, SHA-256).</dd><dt><a class="type" href="type.SigningPackage.html" title="type frost_secp256k1_tr::SigningPackage">Signing<wbr>Package</a></dt><dd>Generated by the coordinator of the signing operation and distributed to
-each signing party.</dd><dt><a class="type" href="type.VerifyingKey.html" title="type frost_secp256k1_tr::VerifyingKey">Verifying<wbr>Key</a></dt><dd>A valid verifying key for Schnorr signatures on FROST(secp256k1, SHA-256).</dd></dl><script type="text/json" id="notable-traits-data">{"&Vec<u8>":"<h3>Notable traits for <code><a class=\"struct\" href=\"https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html\" title=\"struct alloc::vec::Vec\">Vec</a>&lt;<a class=\"primitive\" href=\"https://doc.rust-lang.org/nightly/core/primitive.u8.html\">u8</a>, A&gt;</code></h3><pre><code><div class=\"where\">impl&lt;A&gt; <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/io/write/trait.Write.html\" title=\"trait core::io::write::Write\">Write</a> for <a class=\"struct\" href=\"https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html\" title=\"struct alloc::vec::Vec\">Vec</a>&lt;<a class=\"primitive\" href=\"https://doc.rust-lang.org/nightly/core/primitive.u8.html\">u8</a>, A&gt;<div class=\"where\">where\n    A: <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/alloc/trait.Allocator.html\" title=\"trait core::alloc::Allocator\">Allocator</a>,</div></div>","Vec<u8>":"<h3>Notable traits for <code><a class=\"struct\" href=\"https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html\" title=\"struct alloc::vec::Vec\">Vec</a>&lt;<a class=\"primitive\" href=\"https://doc.rust-lang.org/nightly/core/primitive.u8.html\">u8</a>, A&gt;</code></h3><pre><code><div class=\"where\">impl&lt;A&gt; <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/io/write/trait.Write.html\" title=\"trait core::io::write::Write\">Write</a> for <a class=\"struct\" href=\"https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html\" title=\"struct alloc::vec::Vec\">Vec</a>&lt;<a class=\"primitive\" href=\"https://doc.rust-lang.org/nightly/core/primitive.u8.html\">u8</a>, A&gt;<div class=\"where\">where\n    A: <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/alloc/trait.Allocator.html\" title=\"trait core::alloc::Allocator\">Allocator</a>,</div></div>"}</script></section></div></main></div></body></html>
+</div></details><h2 id="reexports" class="section-header">Re-exports<a href="#reexports" class="anchor">§</a></h2><dl class="item-table reexports"><dt id="reexport.serde"><code>pub use frost_core::<a class="mod" href="https://docs.rs/serde/1.0.228/x86_64-unknown-linux-gnu/serde/index.html" title="mod serde">serde</a>;</code><wbr><span class="stab portability" title="Available on crate feature `serde` only"><code>serde</code></span></dt><dt id="reexport.rand_core"><code>pub use <a class="mod" href="https://docs.rs/rand_core/0.6.4/x86_64-unknown-linux-gnu/rand_core/index.html" title="mod rand_core">rand_core</a>;</code></dt></dl><h2 id="modules" class="section-header">Modules<a href="#modules" class="anchor">§</a></h2><dl class="item-table"><dt><a class="mod" href="keys/index.html" title="mod frost_ed25519::keys">keys</a></dt><dd>FROST(Ed25519, SHA-512) keys, key generation, key shares.</dd><dt><a class="mod" href="round1/index.html" title="mod frost_ed25519::round1">round1</a></dt><dd>FROST(Ed25519, SHA-512) Round 1 functionality and types.</dd><dt><a class="mod" href="round2/index.html" title="mod frost_ed25519::round2">round2</a></dt><dd>FROST(Ed25519, SHA-512) Round 2 functionality and types, for signature share generation.</dd></dl><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.Ed25519Group.html" title="struct frost_ed25519::Ed25519Group">Ed25519<wbr>Group</a></dt><dd>An implementation of the FROST(Ed25519, SHA-512) ciphersuite group.</dd><dt><a class="struct" href="struct.Ed25519ScalarField.html" title="struct frost_ed25519::Ed25519ScalarField">Ed25519<wbr>Scalar<wbr>Field</a></dt><dd>An implementation of the FROST(Ed25519, SHA-512) ciphersuite scalar field.</dd><dt><a class="struct" href="struct.Ed25519Sha512.html" title="struct frost_ed25519::Ed25519Sha512">Ed25519<wbr>Sha512</a></dt><dd>An implementation of the FROST(Ed25519, SHA-512) ciphersuite.</dd></dl><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.FieldError.html" title="enum frost_ed25519::FieldError">Field<wbr>Error</a></dt><dd>An error related to a scalar Field.</dd><dt><a class="enum" href="enum.GroupError.html" title="enum frost_ed25519::GroupError">Group<wbr>Error</a></dt><dd>An error related to a Group (usually an elliptic curve or constructed from one) or one of its Elements.</dd></dl><h2 id="traits" class="section-header">Traits<a href="#traits" class="anchor">§</a></h2><dl class="item-table"><dt><a class="trait" href="trait.Ciphersuite.html" title="trait frost_ed25519::Ciphersuite">Ciphersuite</a></dt><dd>A <a href="https://datatracker.ietf.org/doc/html/rfc9591#name-ciphersuites">FROST ciphersuite</a> specifies the underlying prime-order group details and cryptographic hash
+function.</dd><dt><a class="trait" href="trait.Field.html" title="trait frost_ed25519::Field">Field</a></dt><dd>A prime order finite field GF(q) over which all scalar values for our prime order group can be
+multiplied are defined.</dd><dt><a class="trait" href="trait.Group.html" title="trait frost_ed25519::Group">Group</a></dt><dd>A prime-order group (or subgroup) that provides everything we need to create and verify Schnorr
+signatures.</dd></dl><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.aggregate.html" title="fn frost_ed25519::aggregate">aggregate</a></dt><dd>Verifies each FROST(Ed25519, SHA-512) participant’s signature share, and if all are valid,
+aggregates the shares into a signature to publish.</dd><dt><a class="fn" href="fn.aggregate_custom.html" title="fn frost_ed25519::aggregate_custom">aggregate_<wbr>custom</a></dt><dd>Like <a href="fn.aggregate.html" title="fn frost_ed25519::aggregate"><code>aggregate()</code></a>, but allow specifying a specific cheater detection
+strategy.</dd></dl><h2 id="types" class="section-header">Type Aliases<a href="#types" class="anchor">§</a></h2><dl class="item-table"><dt><a class="type" href="type.CheaterDetection.html" title="type frost_ed25519::CheaterDetection">Cheater<wbr>Detection</a></dt><dd>The type of cheater detection to use.</dd><dt><a class="type" href="type.Error.html" title="type frost_ed25519::Error">Error</a></dt><dd>An error.</dd><dt><a class="type" href="type.Identifier.html" title="type frost_ed25519::Identifier">Identifier</a></dt><dd>A FROST(Ed25519, SHA-512) participant identifier.</dd><dt><a class="type" href="type.Signature.html" title="type frost_ed25519::Signature">Signature</a></dt><dd>A Schnorr signature on FROST(Ed25519, SHA-512).</dd><dt><a class="type" href="type.SigningKey.html" title="type frost_ed25519::SigningKey">Signing<wbr>Key</a></dt><dd>A signing key for a Schnorr signature on FROST(Ed25519, SHA-512).</dd><dt><a class="type" href="type.SigningPackage.html" title="type frost_ed25519::SigningPackage">Signing<wbr>Package</a></dt><dd>Generated by the coordinator of the signing operation and distributed to
+each signing party.</dd><dt><a class="type" href="type.VerifyingKey.html" title="type frost_ed25519::VerifyingKey">Verifying<wbr>Key</a></dt><dd>A valid verifying key for Schnorr signatures on FROST(Ed25519, SHA-512).</dd></dl><script type="text/json" id="notable-traits-data">{"&Vec<u8>":"<h3>Notable traits for <code><a class=\"struct\" href=\"https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html\" title=\"struct alloc::vec::Vec\">Vec</a>&lt;<a class=\"primitive\" href=\"https://doc.rust-lang.org/nightly/core/primitive.u8.html\">u8</a>, A&gt;</code></h3><pre><code><div class=\"where\">impl&lt;A&gt; <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/io/write/trait.Write.html\" title=\"trait core::io::write::Write\">Write</a> for <a class=\"struct\" href=\"https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html\" title=\"struct alloc::vec::Vec\">Vec</a>&lt;<a class=\"primitive\" href=\"https://doc.rust-lang.org/nightly/core/primitive.u8.html\">u8</a>, A&gt;<div class=\"where\">where\n    A: <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/alloc/trait.Allocator.html\" title=\"trait core::alloc::Allocator\">Allocator</a>,</div></div>","Vec<u8>":"<h3>Notable traits for <code><a class=\"struct\" href=\"https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html\" title=\"struct alloc::vec::Vec\">Vec</a>&lt;<a class=\"primitive\" href=\"https://doc.rust-lang.org/nightly/core/primitive.u8.html\">u8</a>, A&gt;</code></h3><pre><code><div class=\"where\">impl&lt;A&gt; <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/io/write/trait.Write.html\" title=\"trait core::io::write::Write\">Write</a> for <a class=\"struct\" href=\"https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html\" title=\"struct alloc::vec::Vec\">Vec</a>&lt;<a class=\"primitive\" href=\"https://doc.rust-lang.org/nightly/core/primitive.u8.html\">u8</a>, A&gt;<div class=\"where\">where\n    A: <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/alloc/trait.Allocator.html\" title=\"trait core::alloc::Allocator\">Allocator</a>,</div></div>"}</script></section></div></main></div></body></html>

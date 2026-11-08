@@ -1,0 +1,322 @@
+diff --git a/ledger/Cargo.toml b/ledger/Cargo.toml
+index a080fbd..b6c9d0a 100644
+--- a/ledger/Cargo.toml
++++ b/ledger/Cargo.toml
+@@ -37,6 +37,7 @@ thiserror                     = { workspace = true }
+ tracing                       = { workspace = true }
+ 
+ [dev-dependencies]
++frost-ed25519 = "3.0.0"
+ divan      = { workspace = true }
+ lb-core    = { features = ["test-utils", "unsafe-test-functions"], workspace = true }
+ lb-zksign  = { workspace = true }
+diff --git a/ledger/src/lib.rs b/ledger/src/lib.rs
+index aca8fa0..373ff3f 100644
+--- a/ledger/src/lib.rs
++++ b/ledger/src/lib.rs
+@@ -1011,6 +1011,8 @@ const fn check_op_data_size<Id>(size: usize, config: &Config) -> Result<(), Ledg
+ 
+ #[cfg(test)]
+ mod tests {
++    mod frost_channel_poc;
++    mod zksign_mpc_poc;
+     use std::num::NonZero;
+ 
+     use cryptarchia::tests::{GENESIS_POW_REWARD_POOL, config, generate_proof, utxo};
+diff --git a/ledger/src/tests/frost_channel_poc.rs b/ledger/src/tests/frost_channel_poc.rs
+new file mode 100644
+index 0000000..9451794
+--- /dev/null
++++ b/ledger/src/tests/frost_channel_poc.rs
+@@ -0,0 +1,172 @@
++//! PoC: threshold-held (FROST-Ed25519) keys as accredited Bedrock channel keys.
++//!
++//! A channel accredits three Ed25519 keys with configuration and transfer
++//! thresholds of 2. Keys 0 and 1 are FROST 2-of-3 group keys (e.g. two
++//! organisations' MPC wallets); key 2 is an ordinary single key. A
++//! `ChannelWithdraw` signed by the two FROST groups must pass the real ledger
++//! (`LedgerState::try_apply_tx_operations`), and fail with too few signatures.
++
++use std::collections::BTreeMap;
++
++use frost_ed25519 as frost;
++use lb_core::mantle::ops::channel::VerifiedChannelKeys;
++use lb_key_management_system_keys::keys::Ed25519Signature;
++use rand::rngs::OsRng;
++
++use super::*;
++
++/// A FROST t-of-n group: trusted-dealer key generation (DKG yields the same packages).
++struct FrostGroup {
++    key_packages: BTreeMap<frost::Identifier, frost::keys::KeyPackage>,
++    pubkeys: frost::keys::PublicKeyPackage,
++}
++
++impl FrostGroup {
++    fn new(max: u16, min: u16) -> Self {
++        let (shares, pubkeys) = frost::keys::generate_with_dealer(
++            max, min, frost::keys::IdentifierList::Default, OsRng,
++        )
++        .unwrap();
++        let key_packages = shares
++            .into_iter()
++            .map(|(id, s)| (id, frost::keys::KeyPackage::try_from(s).unwrap()))
++            .collect();
++        Self { key_packages, pubkeys }
++    }
++
++    fn public_key(&self) -> Ed25519PublicKey {
++        let bytes: [u8; 32] = self.pubkeys.verifying_key().serialize().unwrap().try_into().unwrap();
++        Ed25519PublicKey::from_bytes(&bytes).unwrap()
++    }
++
++    /// Two-round FROST signing by the chosen participants only.
++    fn sign(&self, participants: &[usize], msg: &[u8]) -> Ed25519Signature {
++        let ids: Vec<_> = self.key_packages.keys().copied().collect();
++        let signers: Vec<_> = participants.iter().map(|i| ids[*i]).collect();
++        let mut nonces = BTreeMap::new();
++        let mut commitments = BTreeMap::new();
++        for id in &signers {
++            let (n, c) = frost::round1::commit(self.key_packages[id].signing_share(), &mut OsRng);
++            nonces.insert(*id, n);
++            commitments.insert(*id, c);
++        }
++        let package = frost::SigningPackage::new(commitments, msg);
++        let shares: BTreeMap<_, _> = signers
++            .iter()
++            .map(|id| (*id, frost::round2::sign(&package, &nonces[id], &self.key_packages[id]).unwrap()))
++            .collect();
++        let sig = frost::aggregate(&package, &shares, &self.pubkeys).unwrap();
++        let bytes: [u8; 64] = sig.serialize().unwrap().try_into().unwrap();
++        Ed25519Signature::from_bytes(&bytes)
++    }
++}
++
++fn channel_with_frost_keys() -> (LedgerState, EraScheduledConfig, ChannelId, NoteId, FrostGroup, FrostGroup) {
++    let test_config = config();
++    let eras = single_era(test_config.clone());
++    let (sk, utxo) = utxo_with_sk();
++    let mut state = LedgerState::from_utxos(
++        [utxo],
++        &test_config,
++        GENESIS_POW_REWARD_POOL,
++        &ConsensusExcludedKeys::empty(),
++    );
++    let (bootstrap_key, bootstrap_pk) = create_test_keys();
++    let channel_id = ChannelId::from([7; 32]);
++
++    // 1. The channel is created by a first inscription with an ordinary key.
++    state = create_channel(state, &eras, channel_id, &bootstrap_key, bootstrap_pk.into_unverified());
++
++    // 2. Reconfigure: accredit [FROST A, FROST B, bootstrap], thresholds 2 and 2.
++    let org_a = FrostGroup::new(3, 2);
++    let org_b = FrostGroup::new(3, 2);
++    let keys = VerifiedChannelKeys::try_from_iter([org_a.public_key(), org_b.public_key(), bootstrap_pk]).unwrap();
++    let config_op = ChannelConfigOp::new(
++        channel_id,
++        MsgId::root(),
++        keys,
++        0.into(),
++        0.into(),
++        NonZero::new(2).unwrap(),
++        NonZero::new(2).unwrap(),
++    )
++    .unwrap();
++    state = state
++        .try_apply_tx_operations::<_, HeaderId>(&eras, create_config_tx(config_op, &bootstrap_key))
++        .unwrap()
++        .0;
++
++    // 3. Deposit a note into the channel (ZkSign by the note owner).
++    let deposit = DepositOp {
++        channel_id,
++        inputs: BoundedInputs::from(utxo.id()).into(),
++        metadata: Metadata::new_unchecked(vec![1]),
++    };
++    let deposited = Utxo::new(deposit.op_id(), 0, utxo.note).id();
++    let tx = create_multi_signed_tx(vec![Op::ChannelDeposit(deposit)], vec![&Key::Zk(sk)]);
++    state = state.try_apply_tx_operations::<_, HeaderId>(&eras, tx).unwrap().0;
++    assert!(state.mantle_ledger.channels().is_channel_note(&deposited));
++
++    (state, eras, channel_id, deposited, org_a, org_b)
++}
++
++fn withdraw_ops(channel_id: ChannelId, note: NoteId) -> Ops {
++    Ops::new(
++        FORK_DIGEST,
++        [Op::ChannelWithdraw(ChannelWithdrawOp { channel_id, inputs: BoundedInputs::from(note).into() })],
++    )
++}
++
++#[test]
++fn frost_ed25519_groups_satisfy_channel_multisig() {
++    let (state, eras, channel_id, deposited, org_a, org_b) = channel_with_frost_keys();
++
++    // The unsigned transaction and the 32-byte hash every signer signs.
++    let ops = withdraw_ops(channel_id, deposited);
++    let tx_hash = ops.hash();
++    let msg = tx_hash.as_signing_bytes();
++
++    // Org A: participants 0 and 2 sign; Org B: participants 1 and 2. Nobody holds a full key.
++    let proof = ChannelMultiSigProof::new(
++        IndexedSignatures::try_from_iter([(0, org_a.sign(&[0, 2], msg)), (1, org_b.sign(&[1, 2], msg))]).unwrap(),
++    );
++    let signed = create_multi_signed_tx(ops.to_vec(), vec![&Key::MultiSequencer(proof)]);
++    let (new_state, _, _, _, deferred) = state
++        .try_apply_tx_operations::<_, HeaderId>(&eras, signed)
++        .expect("ledger accepts a withdraw signed by two FROST groups");
++    deferred.verify().unwrap();
++    assert!(!new_state.mantle_ledger().channels().is_channel_note(&deposited));
++    assert!(new_state.latest_utxos().contains(&deposited));
++}
++
++#[test]
++fn one_frost_group_alone_is_below_threshold() {
++    let (state, eras, channel_id, deposited, org_a, _) = channel_with_frost_keys();
++    let ops = withdraw_ops(channel_id, deposited);
++    let tx_hash = ops.hash();
++    let proof = ChannelMultiSigProof::new(
++        IndexedSignatures::try_from_iter([(0, org_a.sign(&[0, 1], tx_hash.as_signing_bytes()))]).unwrap(),
++    );
++    let signed = create_multi_signed_tx(ops.to_vec(), vec![&Key::MultiSequencer(proof)]);
++    assert!(state.try_apply_tx_operations::<_, HeaderId>(&eras, signed).is_err());
++}
++
++#[test]
++fn frost_signature_over_another_tx_is_rejected() {
++    let (state, eras, channel_id, deposited, org_a, org_b) = channel_with_frost_keys();
++    let ops = withdraw_ops(channel_id, deposited);
++    let other = Ops::new(FORK_DIGEST, [Op::ChannelWithdraw(ChannelWithdrawOp {
++        channel_id: ChannelId::from([8; 32]),
++        inputs: BoundedInputs::from(deposited).into(),
++    })]);
++    let wrong = other.hash();
++    let proof = ChannelMultiSigProof::new(
++        IndexedSignatures::try_from_iter([
++            (0, org_a.sign(&[0, 1], ops.hash().as_signing_bytes())),
++            (1, org_b.sign(&[0, 1], wrong.as_signing_bytes())),
++        ])
++        .unwrap(),
++    );
++    let signed = create_multi_signed_tx(ops.to_vec(), vec![&Key::MultiSequencer(proof)]);
++    assert!(state.try_apply_tx_operations::<_, HeaderId>(&eras, signed).is_err());
++}
+diff --git a/ledger/src/tests/zksign_mpc_poc.rs b/ledger/src/tests/zksign_mpc_poc.rs
+new file mode 100644
+index 0000000..524a179
+--- /dev/null
++++ b/ledger/src/tests/zksign_mpc_poc.rs
+@@ -0,0 +1,113 @@
++//! PoC: a Bedrock note transfer authorised by a ZkSign proof produced in MPC.
++//!
++//! ZkSign is a Groth16 proof (circuit `mantle/signature.circom`) of knowledge of
++//! secret keys whose Poseidon2 digests are the input notes' public keys, bound
++//! to the transaction hash as a public input. Here the proof is not produced
++//! by `ZkKey::sign` but by three co-circom parties holding Shamir shares of the
++//! key (see `poc/zksign-co-circom/run.sh` in the research repo).
++//!
++//! Keygen happens in MPC beforehand (dealerless, see run.sh). Step 1
++//! (`zksign_mpc_step1_write_input`) builds a transfer spending a note owned by
++//! the MPC public key and writes the tx hash (`msg`) the parties must sign. Step 2 (`zksign_mpc_step2_apply_mpc_proof`) loads the MPC
++//! proof and runs the transfer through `LedgerState::try_apply_tx_operations`
++//! plus the deferred Groth16 verification, exactly as a node would.
++//! Both are `#[ignore]`d and read `ZKSIGN_POC_DIR`.
++
++use lb_groth16::{Groth16Proof, Groth16ProofJsonDeser};
++
++use super::*;
++
++/// Key for the control test only (single-party prover). The MPC flow never
++/// sees a secret key: its public key comes from `keygen_public_input.json`.
++fn control_key() -> ZkKey {
++    ZkKey::from(BigUint::parse_bytes(b"1234567890123456789012345678901234567890", 10).unwrap())
++}
++
++/// Public key computed in MPC by the keygen run: `Poseidon2(KDF, Σ r_j)`.
++fn mpc_pk() -> ZkPublicKey {
++    let raw = std::fs::read_to_string(poc_dir().join("keygen_public_input.json")).unwrap();
++    let inputs: Vec<String> = serde_json::from_str(&raw).unwrap();
++    ZkPublicKey::new(BigUint::parse_bytes(inputs[0].as_bytes(), 10).unwrap().into())
++}
++
++fn transfer_from_note(pk: ZkPublicKey) -> (LedgerState, EraScheduledConfig, Ops, Utxo) {
++    let test_config = config();
++    let eras = single_era(test_config.clone());
++    let utxo = Utxo { op_id: [3; 32], output_index: 0, note: Note::new(10_000, pk) };
++    let state = LedgerState::from_utxos([utxo], &test_config, GENESIS_POW_REWARD_POOL, &ConsensusExcludedKeys::empty());
++    let recipient = ZkKey::from(BigUint::from(42u8)).to_public_key();
++    let ops = Ops::new(
++        FORK_DIGEST,
++        [Op::Transfer(TransferOp::new(
++            Inputs::try_new(vec![utxo.id()]).unwrap(),
++            Outputs::try_new(vec![Note::new(10_000, recipient)]).unwrap(),
++        ))],
++    );
++    (state, eras, ops, utxo)
++}
++
++fn poc_dir() -> std::path::PathBuf {
++    std::env::var("ZKSIGN_POC_DIR").expect("set ZKSIGN_POC_DIR").into()
++}
++
++fn fr_dec(fr: &Fr) -> String {
++    BigUint::from(*fr).to_str_radix(10)
++}
++
++#[test]
++#[ignore = "driven by poc/zksign-co-circom/run.sh"]
++fn zksign_mpc_step1_write_input() {
++    // Only public data leaves here: the tx hash the parties must sign.
++    let (_, _, ops, utxo) = transfer_from_note(mpc_pk());
++    let msg = ops.hash().to_fr();
++    std::fs::write(poc_dir().join("msg.txt"), fr_dec(&msg)).unwrap();
++    let expected = serde_json::json!({ "note_pk": fr_dec(utxo.note.pk.as_fr()), "msg": fr_dec(&msg) });
++    std::fs::write(poc_dir().join("expected.json"), serde_json::to_string_pretty(&expected).unwrap()).unwrap();
++}
++
++fn load_mpc_signature() -> ZkSignature {
++    let raw = std::fs::read_to_string(poc_dir().join("proof.json")).unwrap();
++    let json: Groth16ProofJsonDeser = serde_json::from_str(&raw).unwrap();
++    let proof: Groth16Proof = json.try_into().unwrap();
++    ZkSignature::new(CompressedGroth16Proof::try_from(&proof).unwrap())
++}
++
++fn apply(state: LedgerState, eras: &EraScheduledConfig, ops: Ops, sig: ZkSignature) -> Result<(), String> {
++    let signed = SignedOps::from_parts(ops, OpProofs::from([OpProof::ZkSig(sig)]))
++        .map_err(|e| format!("{e:?}"))?
++        .preverify()
++        .map_err(|e| format!("{e:?}"))?;
++    let (_, _, _, _, deferred) = state
++        .try_apply_tx_operations::<_, HeaderId>(eras, signed)
++        .map_err(|e| format!("{e:?}"))?;
++    deferred.verify().map_err(|e| format!("{e:?}"))
++}
++
++#[test]
++#[ignore = "driven by poc/zksign-co-circom/run.sh"]
++fn zksign_mpc_step2_apply_mpc_proof() {
++    let (state, eras, ops, _) = transfer_from_note(mpc_pk());
++    let sig = load_mpc_signature();
++
++    // The ledger accepts the MPC-produced proof for this transfer...
++    apply(state.clone(), &eras, ops, sig.clone()).expect("ledger accepts the MPC ZkSign proof");
++
++    // ...and rejects it for any other transaction (it is bound to the tx hash).
++    let (_, _, _, utxo) = transfer_from_note(mpc_pk());
++    let other = Ops::new(
++        FORK_DIGEST,
++        [Op::Transfer(TransferOp::new(
++            Inputs::try_new(vec![utxo.id()]).unwrap(),
++            Outputs::try_new(vec![Note::new(9_999, ZkKey::from(BigUint::from(7u8)).to_public_key())]).unwrap(),
++        ))],
++    );
++    assert!(apply(state, &eras, other, sig).is_err(), "proof must not authorise a different tx");
++}
++
++/// Control: the same harness with a proof from the ordinary single-party prover.
++#[test]
++fn zksign_mpc_control_local_prover() {
++    let (state, eras, ops, _) = transfer_from_note(control_key().to_public_key());
++    let sig = control_key().sign_payload(&ops.hash().to_fr()).unwrap();
++    apply(state, &eras, ops, sig).expect("harness accepts a locally produced ZkSign proof");
++}
