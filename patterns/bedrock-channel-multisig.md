@@ -50,6 +50,14 @@ Making a multisig on the Logos Blockchain with Ed25519/MPC keys **means making t
 | **Vendor compatibility** | ✓ Fordefi/Fireblocks/Dfns EdDSA vaults and FROST-Ed25519 | ✗ vendors; ✓ self-hosted co-circom only |
 | **Liveness** | Any k of n (FROST t-of-n inside each member) | All n parties (co-SNARK) |
 
+### Staking
+
+Channel notes stay in the Bedrock UTXO set:
+- **Consensus (leader lottery):** they can stake, using the note's ZK key, which cannot spend them.
+- **Blend / SDP:** they are rejected as collateral (`SdpError::ChannelNote`).
+
+Details: [[channel-notes-staking]].
+
 Bedrock notes are not confidential anyway: `Note { value, pk }` is public ledger state. The privacy lost by using a channel is **unlinkability and hiding the custody structure**, not amount privacy.
 
 ## Summary

@@ -35,6 +35,9 @@ Everything marked ✓ is backed by code or a PoC against the Bedrock ledger at `
   - payers must use `ChannelDeposit`, not a normal transfer;
   - payouts take two ops;
   - channels are built for zone sequencing, so this is off-label use exposed to future channel-rule changes.
+- **Staking** ([[channel-notes-staking]]):
+  - Consensus: ✓. The treasury's notes count as leader stake. A staking node holds the notes' ZK key, which cannot move them, and rewards go to a `pk` the leader chooses.
+  - Blend / SDP collateral: ✗ from the channel. The note must be withdrawn first, and the stake is then a plain note (single key or shape B).
 - Signer changes go on chain through `ChannelConfigOp` at `configuration_threshold`.
 - **Fees** are paid from ordinary notes, so a small hot fee balance in the operator's node (`/wallet/fund`) is enough.
 - **Deposits** into the treasury are signed by whoever is paying in (their own ZkSign).
@@ -48,7 +51,7 @@ Everything marked ✓ is backed by code or a PoC against the Bedrock ledger at `
 ```
 
 - The note is an ordinary `Note(value, pk)`. Nothing on chain shows that it is MPC-held ([[threshold-zksign-cosnark]]).
-- It covers what A can't: plain balances, fee payment and deposits from MPC funds.
+- It covers what A can't: plain balances, fee payment, deposits and Blend (SDP) collateral from MPC funds. SDP and proof-of-leadership proofs via MPC were not tested.
 - Trade-offs:
   - every party must be online for each proof;
   - the security model is semi-honest;

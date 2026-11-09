@@ -13,6 +13,8 @@ access_date: 2026-11-08
 | Visible on chain | Channel id, accredited keys, thresholds, which indices signed; all treasury flows linkable | One key in a public channel config (the channel is still visible) | n/a | One `pk` per note, indistinguishable from a single owner |
 | Liveness | Any k of n | Any t of n (FROST) | 1 prover with every key | **All n** MPC parties |
 | Membership change | `ChannelConfigOp` at `configuration_threshold` | Reshare (same key) or reconfigure the channel | Spend to new notes | Reshare (same key) or spend to new notes |
+| Consensus stake | ✓ (staker holds the note's ZK key, cannot spend) | ✓ same | ✓ | Needs MPC proof of leadership (untested) |
+| Blend / SDP collateral | ✗ (`SdpError::ChannelNote`) | ✗ | ✓ | ✓ in principle (untested) |
 | Vendor support | n/a | Fordefi, Fireblocks, Dfns EdDSA | ✗ | ✗ (self-hosted co-circom) |
 | Maturity | Protocol | ZF FROST: NCC-audited at v0.6.0 (2023), the PoC uses 3.0.0; vendors: in production | Protocol | Experimental, unaudited |
 

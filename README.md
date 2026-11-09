@@ -23,7 +23,7 @@
 | 4 | What library builds an unsigned transaction today? | **`logos-blockchain-core`**: `MantleTxBuilder` → `Ops` (unsigned), `ops.hash()`, `SignedOps::from_parts`. **Node API:** `POST /wallet/fund` returns unsigned `Ops`, `POST /mempool/add/tx` submits. **C bindings and Logos Core module:** `wallet_fund_tx` and `submit_signed_transaction`. Missing: an `Ops` decoder for approvers and a remote-signer KMS backend. | [[unsigned-tx-tooling-bedrock]], [[tools/bedrock-kms]] |
 
 **What it would look like:** [[mpc-custody-design-for-bedrock]]. In short:
-- **Treasury as a channel (the multisig is a zone-like channel):** native k-of-n Ed25519, where each accredited key can be FROST or a Fordefi-style vault. Works today and is vendor-compatible, but the custody structure and all treasury flows are public and linkable ([[bedrock-channel-multisig]]).
+- **Treasury as a channel (the multisig is a zone-like channel):** native k-of-n Ed25519, where each accredited key can be FROST or a Fordefi-style vault. Works today and is vendor-compatible, but the custody structure and all treasury flows are public and linkable ([[bedrock-channel-multisig]]). The funds stay on the Logos Blockchain and can stake for consensus, but **not for Blend**: SDP rejects channel notes as collateral ([[channel-notes-staking]]).
 - **Plain notes under co-SNARK ZkSign:** the funds look like any single-owner note, but this is experimental (n-of-n online, semi-honest, unaudited).
 
 ## Proofs of concept (`poc/`)

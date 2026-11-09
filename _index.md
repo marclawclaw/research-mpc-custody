@@ -17,7 +17,7 @@
 
 ## Notes by question
 
-1. Schemes: [[bedrock-key-types]], [[bedrock-channel-multisig]] (what Ed25519 can and cannot move)
+1. Schemes: [[bedrock-key-types]], [[bedrock-channel-multisig]] (what Ed25519 can and cannot move), [[channel-notes-staking]] (consensus and Blend staking from a treasury channel)
 2. Black-box vaults: [[black-box-vault-bedrock]], [[frost-ed25519-channel-keys]]
 3. Proving vs signing: [[zksign-proving-vs-signing]], [[threshold-zksign-cosnark]]
 4. Unsigned transactions: [[unsigned-tx-tooling-bedrock]], [[tools/bedrock-kms]]
@@ -26,7 +26,7 @@ Synthesis: [[mpc-custody-design-for-bedrock]], [[mpc-vs-native-multisig-bedrock]
 
 ## Shortlist
 
-1. **Treasury channel and FROST-Ed25519 or a Fordefi `eddsa25519` vault as accredited keys.** Native, vendor-compatible, verified. Costs: the treasury is a public, linkable, zone-like channel ([[bedrock-channel-multisig]]).
+1. **Treasury channel and FROST-Ed25519 or a Fordefi `eddsa25519` vault as accredited keys.** Native, vendor-compatible, verified. Costs: the treasury is a public, linkable, zone-like channel ([[bedrock-channel-multisig]]). Can stake for consensus but not for Blend ([[channel-notes-staking]]).
 2. **co-circom ZkSign** for plain notes and fees, where n-of-n liveness and semi-honest security are acceptable.
 3. **`Ops` decoder plus signer adapter**: the only missing glue for 1.
 
