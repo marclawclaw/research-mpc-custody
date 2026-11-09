@@ -7,13 +7,14 @@ answers: "Q2"
 
 # Can a black-box vault sign a Logos Blockchain transaction?
 
-**Answer: yes for the Ed25519 parts, no for spending notes.**
-- A black-box (hash-signing) vault with an **Ed25519** key can produce every Ed25519 signature Bedrock needs: channel inscriptions, channel config/withdraw/transfer multisig entries, and the Ed25519 half of an SDP declaration. The payload is the raw 32-byte Blake2b tx hash, so no Bedrock-specific support is required in the vault.
-- **No vault can spend a note**, because that needs a ZkSign Groth16 proof over BN254/Poseidon2 keys ([[bedrock-key-types]]). That is not a signature scheme any custodian offers.
+**Answer: only for channel operations. No vault can spend an ordinary note.**
+- A black-box (hash-signing) vault with an **Ed25519** key can produce every Ed25519 signature Bedrock needs: channel inscriptions (sequencing), channel config/transfer/withdraw multisig entries, and the Ed25519 half of an SDP declaration. The payload is the raw 32-byte Blake2b tx hash, so no Bedrock-specific support is required in the vault.
+- **Ed25519 does not authorise transfers of plain notes.** A vault can only control funds that sit **inside a channel**, which means running the treasury as a zone-like channel. That has real downsides: public custody structure, visible signer indices, every treasury flow linkable to one channel id, and payers needing `ChannelDeposit` ([[bedrock-channel-multisig]]).
+- **No vault can spend a plain note**, because that needs a ZkSign Groth16 proof over BN254/Poseidon2 keys ([[bedrock-key-types]]). That is not a signature scheme any custodian offers.
 
 ## Vendor check (2026-11-08)
 
-| Signer | Black-box / raw schemes | Bedrock Ed25519 ops | Bedrock notes (ZkSign) |
+| Signer | Black-box / raw schemes | Bedrock Ed25519 ops (channel only) | Bedrock plain notes (ZkSign) |
 |---|---|---|---|
 | **Fordefi** black-box vault | `eddsa25519`, `ecdsa_secp256k1`, `ecdsa_stark` | ✓ `eddsa25519`, signs a `hash_binary` payload | ✗ |
 | **Fireblocks** raw signing | `MPC_EDDSA_ED25519`, `MPC_ECDSA_SECP256K1` | ✓ | ✗ |

@@ -31,4 +31,4 @@ An institutional MPC wallet focused on DeFi. **Acquired by Paxos on 2025-11-25**
 | SDP declaration | Ed25519 + ZkSign | Ed25519 half only |
 | Notes: transfer, deposit, fees | ZkSign (Groth16, BN254/Poseidon2) | ✗ not a signature scheme Fordefi supports |
 
-**In practice:** Fordefi can hold one of a channel's accredited keys (or the only one), and so control treasury funds kept as **channel notes**. It cannot hold plain notes, and it cannot pay fees, which need a ZkSign. See [[black-box-vault-bedrock]] and [[mpc-custody-design-for-bedrock]].
+**In practice:** Fordefi can hold one of a channel's accredited keys (or the only one), and so control treasury funds **only if they are kept as channel notes**. The treasury is then a zone-like channel, with a public, linkable custody structure. Fordefi cannot hold plain notes, and it cannot pay fees, which need a ZkSign. See [[black-box-vault-bedrock]] and [[mpc-custody-design-for-bedrock]].

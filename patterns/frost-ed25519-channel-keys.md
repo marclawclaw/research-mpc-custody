@@ -23,13 +23,15 @@ Bedrock `ce15ec1` with `frost-ed25519` 3.0.0 as a dev-dependency:
 | `frost_ed25519_groups_satisfy_channel_multisig` | accepted, note released | ✓ |
 | `one_frost_group_alone_is_below_threshold` | rejected | ✓ |
 | `frost_signature_over_another_tx_is_rejected` | rejected | ✓ |
+| `frost_treasury_channel_pays_recipient`: channel created by **config alone** (no inscription, posting timeframe/timeout 0); deposit; the depositor's own `Transfer` of the locked note fails; `ChannelTransfer` (6 000 to recipient, 4 000 change) + `ChannelWithdraw` in one tx, FROST signatures only | recipient holds an ordinary note; change stays a channel note | ✓ |
 
-These passed on 5 consecutive runs on the working checkout, and again on a fresh checkout with the patch applied.
+The first three passed on 5 consecutive runs on the working checkout. All four passed on a pristine checkout with the patch applied (2026-11-09).
 
 ## What this shows
 
 - FROST-Ed25519 aggregates are canonical Ed25519 and pass Bedrock's `verify_strict`.
-- Nested custody works with no protocol change: an on-chain k-of-n where each member is itself a t-of-n MPC key ([[bedrock-channel-multisig]]).
+- Nested custody works with no protocol change: an on-chain k-of-n where each member is itself a t-of-n MPC key.
+- **This is custody of channel notes, not plain notes.** The treasury is a channel, with the visibility and linkability costs listed in [[bedrock-channel-multisig]].
 - By extension, any vendor whose EdDSA black-box output is standard RFC 8032 should work the same way (Fordefi `eddsa25519`, Fireblocks `MPC_EDDSA_ED25519`). Not tested against those vendors ([[black-box-vault-bedrock]]).
 
 ## Limits
@@ -42,7 +44,7 @@ Run it:
 ```sh
 git clone https://github.com/logos-blockchain/logos-blockchain && cd logos-blockchain
 git checkout ce15ec1 && git apply <this repo>/poc/bedrock-ledger.patch
-cargo test -p logos-blockchain-ledger frost_
+cargo test -p logos-blockchain-ledger frost_        # 4 tests
 ```
 
 Related: [[tools/frost-zf]], [[threshold-zksign-cosnark]].

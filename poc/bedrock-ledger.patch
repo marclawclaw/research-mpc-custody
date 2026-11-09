@@ -25,10 +25,10 @@ index aca8fa0..373ff3f 100644
      use cryptarchia::tests::{GENESIS_POW_REWARD_POOL, config, generate_proof, utxo};
 diff --git a/ledger/src/tests/frost_channel_poc.rs b/ledger/src/tests/frost_channel_poc.rs
 new file mode 100644
-index 0000000..9451794
+index 0000000..40a1840
 --- /dev/null
 +++ b/ledger/src/tests/frost_channel_poc.rs
-@@ -0,0 +1,172 @@
+@@ -0,0 +1,244 @@
 +//! PoC: threshold-held (FROST-Ed25519) keys as accredited Bedrock channel keys.
 +//!
 +//! A channel accredits three Ed25519 keys with configuration and transfer
@@ -200,6 +200,78 @@ index 0000000..9451794
 +    );
 +    let signed = create_multi_signed_tx(ops.to_vec(), vec![&Key::MultiSequencer(proof)]);
 +    assert!(state.try_apply_tx_operations::<_, HeaderId>(&eras, signed).is_err());
++}
++
++/// Full treasury flow with the channel used as a custody account, not for sequencing:
++/// created by config alone (no inscription, posting timeframe/timeout 0 = no posting
++/// duty), funded by a deposit, then pays a recipient by ChannelTransfer (re-assign the
++/// note inside the channel) + ChannelWithdraw (release it to the ledger), both
++/// authorised only by the FROST groups' Ed25519 signatures.
++#[test]
++fn frost_treasury_channel_pays_recipient() {
++    let test_config = config();
++    let eras = single_era(test_config.clone());
++    let (depositor_sk, utxo) = utxo_with_sk();
++    let mut state = LedgerState::from_utxos(
++        [utxo],
++        &test_config,
++        GENESIS_POW_REWARD_POOL,
++        &ConsensusExcludedKeys::empty(),
++    );
++    let org_a = FrostGroup::new(3, 2);
++    let org_b = FrostGroup::new(3, 2);
++    let (_, plain_pk) = create_test_keys();
++    let treasury = ChannelId::from([42; 32]);
++
++    // 1. Create the treasury channel directly from a config (empty proof, no inscription).
++    let keys = VerifiedChannelKeys::try_from_iter([org_a.public_key(), org_b.public_key(), plain_pk]).unwrap();
++    let config_op = ChannelConfigOp::new(
++        treasury, MsgId::root(), keys, 0.into(), 0.into(),
++        NonZero::new(2).unwrap(), NonZero::new(2).unwrap(),
++    )
++    .unwrap();
++    state = state.try_apply_tx_operations::<_, HeaderId>(&eras, create_genesis_config_tx(config_op)).unwrap().0;
++
++    // 2. Someone deposits into the treasury (their own ZkSign).
++    let deposit = DepositOp { channel_id: treasury, inputs: BoundedInputs::from(utxo.id()).into(), metadata: Metadata::new_unchecked(vec![]) };
++    let deposited = Utxo::new(deposit.op_id(), 0, utxo.note).id();
++    let tx = create_multi_signed_tx(vec![Op::ChannelDeposit(deposit)], vec![&Key::Zk(depositor_sk.clone())]);
++    state = state.try_apply_tx_operations::<_, HeaderId>(&eras, tx).unwrap().0;
++
++    // The depositor can no longer spend the locked note with its own key.
++    let steal = create_tx(vec![deposited], vec![Note::new(utxo.note.value, depositor_sk.to_public_key())], &[depositor_sk]);
++    assert!(steal.preverify().map(|tx| state.clone().try_apply_tx_operations::<_, HeaderId>(&eras, tx).is_err()).unwrap_or(true));
++
++    // 3. Pay 6_000 to a recipient, 4_000 change stays in the treasury.
++    let recipient_pk = ZkKey::from(BigUint::from(777u32)).to_public_key();
++    let treasury_pk = ZkKey::from(BigUint::from(1u32)).to_public_key(); // label only: channel notes are channel-controlled
++    let transfer = ChannelTransferOp {
++        channel_id: treasury,
++        inputs: BoundedInputs::from(deposited).into(),
++        outputs: Outputs::try_new(vec![Note::new(6_000, recipient_pk), Note::new(4_000, treasury_pk)]).unwrap(),
++    };
++    let paid = transfer.utxos().next().unwrap().id();
++    let change = transfer.utxos().nth(1).unwrap().id();
++    let withdraw = ChannelWithdrawOp { channel_id: treasury, inputs: BoundedInputs::from(paid).into() };
++    let ops = Ops::new(FORK_DIGEST, [Op::ChannelTransfer(transfer), Op::ChannelWithdraw(withdraw)]);
++    let msg = ops.hash();
++    let proof = || ChannelMultiSigProof::new(
++        IndexedSignatures::try_from_iter([
++            (0, org_a.sign(&[0, 1], msg.as_signing_bytes())),
++            (1, org_b.sign(&[1, 2], msg.as_signing_bytes())),
++        ])
++        .unwrap(),
++    );
++    let signed = create_multi_signed_tx(ops.to_vec(), vec![&Key::MultiSequencer(proof()), &Key::MultiSequencer(proof())]);
++    let (new_state, _, _, _, deferred) = state
++        .try_apply_tx_operations::<_, HeaderId>(&eras, signed)
++        .expect("treasury pays the recipient with FROST signatures only");
++    deferred.verify().unwrap();
++
++    let channels = new_state.mantle_ledger().channels();
++    assert!(!channels.is_channel_note(&paid), "payment left the channel");
++    assert!(new_state.latest_utxos().contains(&paid), "recipient now holds an ordinary note");
++    assert!(channels.is_channel_note(&change), "change stays under channel control");
 +}
 diff --git a/ledger/src/tests/zksign_mpc_poc.rs b/ledger/src/tests/zksign_mpc_poc.rs
 new file mode 100644

@@ -8,7 +8,7 @@
 
 | Name | Type | Bedrock surface | Licence | Note |
 |---|---|---|---|---|
-| Fordefi | Commercial MPC (Paxos) | Ed25519 (`eddsa25519` black-box) | Proprietary | [[tools/fordefi]] |
+| Fordefi | Commercial MPC (Paxos) | Ed25519 channel keys only (`eddsa25519` black-box) | Proprietary | [[tools/fordefi]] |
 | Fireblocks | Commercial MPC | Ed25519 (raw signing) | Proprietary | [[black-box-vault-bedrock]] |
 | Dfns | Commercial MPC | Ed25519 (hash signing) | Proprietary | [[black-box-vault-bedrock]] |
 | ZF FROST (`frost-ed25519`) | Open-source threshold Schnorr | Ed25519 channel keys ✓ PoC | MIT/Apache-2.0 | [[tools/frost-zf]] |
@@ -17,7 +17,7 @@
 
 ## Notes by question
 
-1. Schemes: [[bedrock-key-types]], [[bedrock-channel-multisig]]
+1. Schemes: [[bedrock-key-types]], [[bedrock-channel-multisig]] (what Ed25519 can and cannot move)
 2. Black-box vaults: [[black-box-vault-bedrock]], [[frost-ed25519-channel-keys]]
 3. Proving vs signing: [[zksign-proving-vs-signing]], [[threshold-zksign-cosnark]]
 4. Unsigned transactions: [[unsigned-tx-tooling-bedrock]], [[tools/bedrock-kms]]
@@ -26,7 +26,7 @@ Synthesis: [[mpc-custody-design-for-bedrock]], [[mpc-vs-native-multisig-bedrock]
 
 ## Shortlist
 
-1. **Channel treasury and FROST-Ed25519 or a Fordefi `eddsa25519` vault as accredited keys.** Native, vendor-compatible, verified.
+1. **Treasury channel and FROST-Ed25519 or a Fordefi `eddsa25519` vault as accredited keys.** Native, vendor-compatible, verified. Costs: the treasury is a public, linkable, zone-like channel ([[bedrock-channel-multisig]]).
 2. **co-circom ZkSign** for plain notes and fees, where n-of-n liveness and semi-honest security are acceptable.
 3. **`Ops` decoder plus signer adapter**: the only missing glue for 1.
 

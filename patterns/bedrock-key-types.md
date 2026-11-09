@@ -17,6 +17,13 @@ answers: "Q1"
 
 There is no secp256k1 anywhere in Bedrock.
 
+**Ed25519 never authorises spending an ordinary note.** It is used for:
+- sequencing (inscriptions),
+- the channel multisig, which moves only notes that were deposited into a channel,
+- SDP declarations.
+
+All value held in plain notes is controlled by ZK keys. See [[bedrock-channel-multisig]].
+
 ## What gets signed
 
 - The tx hash is **Blake2b-256** over the ops' signing bytes (`core/src/crypto.rs:2`, `tx_list/hash.rs:6`).
@@ -44,7 +51,7 @@ From `does_proof_match`, `core/src/mantle/ops/op.rs:267`:
 
 ## Consequences for MPC custody
 
-- **Ed25519 parts:** any threshold-Ed25519 signer works as long as it produces a standard signature over 32 bytes. Examples: FROST-Ed25519, or vendor EdDSA vaults such as Fordefi and Fireblocks. Proven against the real ledger in [[frost-ed25519-channel-keys]].
+- **Ed25519 parts:** any threshold-Ed25519 signer works as long as it produces a standard signature over 32 bytes. Examples: FROST-Ed25519, or vendor EdDSA vaults such as Fordefi and Fireblocks. Proven against the real ledger in [[frost-ed25519-channel-keys]]. For custody this only helps if the funds are kept **in a channel**, which makes the treasury a zone-like object with public, linkable structure ([[bedrock-channel-multisig]]).
 - **ZK parts (funds in notes):** no signing API can produce a ZkSign, because it is a proof whose witness is the secret key. It *can* be produced by **collaborative proving** over secret-shared keys. Proven against the real ledger in [[threshold-zksign-cosnark]]. See [[zksign-proving-vs-signing]].
 
 Related: [[signer-compat-matrix]], [[mpc-custody-design-for-bedrock]].

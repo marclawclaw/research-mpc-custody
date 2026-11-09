@@ -11,7 +11,7 @@ Everything marked ✓ is backed by code or a PoC against the Bedrock ledger at `
 
 ## Two custody shapes
 
-### A. Treasury in a channel (practical today, vendor-compatible)
+### A. Treasury as a channel: the multisig *is* a zone-like channel (vendor-compatible, privacy cost)
 
 ```
             on-chain: channel config  (accredited Ed25519 keys, transfer_threshold = k)
@@ -22,7 +22,19 @@ Everything marked ✓ is backed by code or a PoC against the Bedrock ledger at `
                   ChannelWithdraw / ChannelTransfer  ✓ (FROST groups, PoC)
 ```
 
-- Funds sit as **channel notes**. Moving them takes `transfer_threshold` Ed25519 signatures. Any accredited key can be MPC ([[bedrock-channel-multisig]], [[frost-ed25519-channel-keys]]).
+- **Ed25519 only controls funds inside a channel.** So shape A means creating a channel purely as a custody account:
+  - created by `ChannelConfigOp` alone, with posting timeframe/timeout 0 so there is no sequencing duty;
+  - funded by `ChannelDeposit`;
+  - paid out with `ChannelTransfer` (re-assign to the recipient's `pk`) + `ChannelWithdraw` (release), each needing `transfer_threshold` Ed25519 signatures.
+  
+  Any accredited key can be MPC. Verified end to end ([[frost-ed25519-channel-keys]]).
+- **Downsides** ([[bedrock-channel-multisig]]):
+  - the custody structure (keys, thresholds, config history) is public;
+  - each payout reveals which members signed;
+  - all treasury funds and flows are linkable to one channel id;
+  - payers must use `ChannelDeposit`, not a normal transfer;
+  - payouts take two ops;
+  - channels are built for zone sequencing, so this is off-label use exposed to future channel-rule changes.
 - Signer changes go on chain through `ChannelConfigOp` at `configuration_threshold`.
 - **Fees** are paid from ordinary notes, so a small hot fee balance in the operator's node (`/wallet/fund`) is enough.
 - **Deposits** into the treasury are signed by whoever is paying in (their own ZkSign).
@@ -58,7 +70,7 @@ Every MPC participant should run step 3 itself, decoding `Ops` and checking it a
 
 ## Where Fordefi fits
 
-- **Yes:** as an accredited Ed25519 channel key (shape A), alone or alongside other members.
+- **Yes:** as an accredited Ed25519 key of a **treasury channel** (shape A), alone or alongside other members, with shape A's privacy costs.
 - **No:** for plain notes or fees, which need ZkSign ([[tools/fordefi]]).
 
 ## What would need building
@@ -74,7 +86,7 @@ Every MPC participant should run step 3 itself, decoding `Ops` and checking it a
 
 ## Open questions
 
-1. Are channels meant to be used as general treasuries, or only for zones? Shape A depends on channel semantics (inscription parent chain, posting timeouts) being acceptable for custody.
+1. Are channels meant to be used as general treasuries, or only for zones? Shape A depends on the Logos team accepting channels as custody accounts, and on channel rules (sequencer rotation over accredited keys, timeouts, bridge logic) staying compatible.
 2. Would Logos accept GPL-3.0 tooling (co-circom) in custody infrastructure, or should the MPC prover be rebuilt on the MIT/Apache `co-groth16` and `mpc-core` crates?
 3. Could a threshold-friendly signing scheme be added for notes in a future Mantle version, to avoid co-SNARKs? For example, Ed25519 or FROST-compatible note keys as an alternative `OpProof`.
 
