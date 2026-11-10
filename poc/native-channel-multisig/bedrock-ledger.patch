@@ -1,0 +1,402 @@
+diff --git a/ledger/src/lib.rs b/ledger/src/lib.rs
+index 373ff3f75..b838f5613 100644
+--- a/ledger/src/lib.rs
++++ b/ledger/src/lib.rs
+@@ -1012,6 +1012,7 @@ const fn check_op_data_size<Id>(size: usize, config: &Config) -> Result<(), Ledg
+ #[cfg(test)]
+ mod tests {
+     mod frost_channel_poc;
++    mod native_channel_multisig_poc;
+     mod zksign_mpc_poc;
+     use std::num::NonZero;
+ 
+diff --git a/ledger/src/tests/native_channel_multisig_poc.rs b/ledger/src/tests/native_channel_multisig_poc.rs
+new file mode 100644
+index 000000000..68fc479df
+--- /dev/null
++++ b/ledger/src/tests/native_channel_multisig_poc.rs
+@@ -0,0 +1,384 @@
++//! PoC: a channel used as a treasury with plain Ed25519 member keys (native
++//! k-of-n channel multisig, no MPC).
++//!
++//! The channel is created by a config alone with n plain Ed25519 keys,
++//! `transfer_threshold = k` and `configuration_threshold = k'`. Funds enter by
++//! `ChannelDeposit` and leave by `ChannelTransfer` + `ChannelWithdraw`, each
++//! carrying a `ChannelMultiSigProof` over the 32-byte tx hash. Every test runs
++//! through `LedgerState::try_apply_tx_operations`, the path a node takes.
++
++use lb_binary_codec::canonical::BinaryDecode as _;
++use lb_core::mantle::ops::channel::{ChannelKeyIndex, VerifiedChannelKeys};
++use lb_key_management_system_keys::keys::Ed25519Signature;
++
++use super::*;
++
++const TREASURY: [u8; 32] = [42; 32];
++const DEPOSIT_VALUE: u64 = 10_000;
++
++/// A treasury: ledger state with one deposited channel note.
++struct Treasury {
++    state: LedgerState,
++    eras: EraScheduledConfig,
++    channel: ChannelId,
++    note: NoteId,
++    /// Id of the channel's current config, the parent of the next one.
++    config_tip: MsgId,
++}
++
++fn member(seed: u8) -> Ed25519Key {
++    Ed25519Key::from_bytes(&[seed; 32])
++}
++
++fn config_op(
++    channel: ChannelId,
++    parent: MsgId,
++    keys: &[&Ed25519Key],
++    configuration_threshold: u16,
++    transfer_threshold: u16,
++) -> ChannelConfigOp {
++    let keys = VerifiedChannelKeys::try_from_iter(keys.iter().map(|k| k.public_key())).unwrap();
++    ChannelConfigOp::new(
++        channel,
++        parent,
++        keys,
++        0.into(), // posting timeframe: none (no sequencing duty)
++        0.into(), // posting timeout: none
++        NonZero::new(configuration_threshold).unwrap(),
++        NonZero::new(transfer_threshold).unwrap(),
++    )
++    .unwrap()
++}
++
++/// Create the treasury from a config alone (empty proof) and deposit one note.
++fn treasury(keys: &[&Ed25519Key], configuration_threshold: u16, transfer_threshold: u16) -> Treasury {
++    let test_config = config();
++    let eras = single_era(test_config.clone());
++    let (depositor_sk, utxo) = utxo_with_sk();
++    assert_eq!(utxo.note.value, DEPOSIT_VALUE);
++    let mut state = LedgerState::from_utxos(
++        [utxo],
++        &test_config,
++        GENESIS_POW_REWARD_POOL,
++        &ConsensusExcludedKeys::empty(),
++    );
++    let channel = ChannelId::from(TREASURY);
++
++    let genesis = config_op(channel, MsgId::root(), keys, configuration_threshold, transfer_threshold);
++    let config_tip = genesis.id();
++    state = state
++        .try_apply_tx_operations::<_, HeaderId>(&eras, create_genesis_config_tx(genesis))
++        .unwrap()
++        .0;
++
++    let deposit = DepositOp {
++        channel_id: channel,
++        inputs: BoundedInputs::from(utxo.id()).into(),
++        metadata: Metadata::new_unchecked(vec![]),
++    };
++    let note = Utxo::new(deposit.op_id(), 0, utxo.note).id();
++    let tx = create_multi_signed_tx(vec![Op::ChannelDeposit(deposit)], vec![&Key::Zk(depositor_sk)]);
++    state = state.try_apply_tx_operations::<_, HeaderId>(&eras, tx).unwrap().0;
++    assert!(state.mantle_ledger.channels().is_channel_note(&note));
++
++    Treasury { state, eras, channel, note, config_tip }
++}
++
++/// Each signer signs the 32-byte tx hash with its own key and labels it with
++/// the channel key index it claims.
++fn proof(signers: &[(ChannelKeyIndex, &Ed25519Key)], msg: &[u8]) -> ChannelMultiSigProof {
++    ChannelMultiSigProof::new(
++        IndexedSignatures::try_from_iter(signers.iter().map(|(i, k)| (*i, k.sign_payload(msg)))).unwrap(),
++    )
++}
++
++/// Payout: 6_000 to a recipient, 4_000 change stays in the treasury.
++struct Payout {
++    ops: Ops,
++    paid: NoteId,
++    change: NoteId,
++}
++
++fn payout(t: &Treasury) -> Payout {
++    let recipient_pk = ZkKey::from(BigUint::from(777u32)).to_public_key();
++    let change_pk = ZkKey::from(BigUint::from(1u32)).to_public_key(); // label only
++    let transfer = ChannelTransferOp {
++        channel_id: t.channel,
++        inputs: BoundedInputs::from(t.note).into(),
++        outputs: Outputs::try_new(vec![Note::new(6_000, recipient_pk), Note::new(4_000, change_pk)]).unwrap(),
++    };
++    let paid = transfer.utxos().next().unwrap().id();
++    let change = transfer.utxos().nth(1).unwrap().id();
++    let withdraw = ChannelWithdrawOp { channel_id: t.channel, inputs: BoundedInputs::from(paid).into() };
++    let ops = Ops::new(FORK_DIGEST, [Op::ChannelTransfer(transfer), Op::ChannelWithdraw(withdraw)]);
++    Payout { ops, paid, change }
++}
++
++/// Sign the payout (both ops carry the same signer set) and apply it.
++fn apply_payout(
++    t: &Treasury,
++    p: &Payout,
++    signers: &[(ChannelKeyIndex, &Ed25519Key)],
++) -> Result<AppliedTxOutcome, LedgerError<HeaderId>> {
++    let msg = p.ops.hash();
++    let pr = Key::MultiSequencer(proof(signers, msg.as_signing_bytes()));
++    let tx = create_multi_signed_tx(p.ops.to_vec(), vec![&pr, &pr]);
++    t.state.clone().try_apply_tx_operations::<_, HeaderId>(&t.eras, tx)
++}
++
++fn assert_paid(t: &Treasury, p: &Payout, outcome: AppliedTxOutcome) {
++    let (new_state, _, _, _, deferred) = outcome;
++    deferred.verify().unwrap();
++    let channels = new_state.mantle_ledger().channels();
++    assert!(!channels.is_channel_note(&t.note), "input consumed");
++    assert!(!channels.is_channel_note(&p.paid), "payment left the channel");
++    assert!(new_state.latest_utxos().contains(&p.paid), "recipient holds an ordinary note");
++    assert!(channels.is_channel_note(&p.change), "change stays under channel control");
++}
++
++/// Apply a config update signed by `signers` over the config tx hash.
++fn apply_config(
++    t: &Treasury,
++    op: ChannelConfigOp,
++    signers: &[(ChannelKeyIndex, &Ed25519Key)],
++) -> Result<AppliedTxOutcome, LedgerError<HeaderId>> {
++    let ops = Ops::new(FORK_DIGEST, [Op::ChannelConfig(op.clone())]);
++    let pr = Key::MultiSequencer(proof(signers, ops.hash().as_signing_bytes()));
++    let tx = create_multi_signed_tx(vec![Op::ChannelConfig(op)], vec![&pr]);
++    t.state.clone().try_apply_tx_operations::<_, HeaderId>(&t.eras, tx)
++}
++
++// ---------------------------------------------------------------- 1. payout
++
++#[test]
++fn native_2_of_3_pays_recipient() {
++    let (a, b, c) = (member(1), member(2), member(3));
++    let t = treasury(&[&a, &b, &c], 2, 2);
++    let p = payout(&t);
++    // Members 0 and 2 approve; member 1 is offline.
++    let outcome = apply_payout(&t, &p, &[(0, &a), (2, &c)]).expect("2 of 3 plain keys pay out");
++    assert_paid(&t, &p, outcome);
++}
++
++#[test]
++fn native_every_pair_of_members_can_pay() {
++    let (a, b, c) = (member(1), member(2), member(3));
++    let t = treasury(&[&a, &b, &c], 2, 2);
++    let p = payout(&t);
++    for pair in [[(0, &a), (1, &b)], [(0, &a), (2, &c)], [(1, &b), (2, &c)]] {
++        let outcome = apply_payout(&t, &p, &pair).expect("any 2 of 3");
++        assert_paid(&t, &p, outcome);
++    }
++}
++
++#[test]
++fn native_one_signature_is_below_threshold() {
++    let (a, b, c) = (member(1), member(2), member(3));
++    let t = treasury(&[&a, &b, &c], 2, 2);
++    let p = payout(&t);
++    let err = apply_payout(&t, &p, &[(1, &b)]).err().expect("rejected");
++    eprintln!("1 of 2 signatures: {err:?}");
++}
++
++#[test]
++fn native_more_signatures_than_threshold_is_rejected() {
++    // The ledger wants exactly k signatures, not at least k.
++    let (a, b, c) = (member(1), member(2), member(3));
++    let t = treasury(&[&a, &b, &c], 2, 2);
++    let p = payout(&t);
++    let err = apply_payout(&t, &p, &[(0, &a), (1, &b), (2, &c)]).err().expect("rejected");
++    eprintln!("3 signatures, threshold 2: {err:?}");
++}
++
++#[test]
++fn native_signature_by_non_member_is_rejected() {
++    let (a, b, c, mallory) = (member(1), member(2), member(3), member(9));
++    let t = treasury(&[&a, &b, &c], 2, 2);
++    let p = payout(&t);
++    // Mallory claims index 1 but signs with her own key.
++    let err = apply_payout(&t, &p, &[(0, &a), (1, &mallory)]).err().expect("rejected");
++    eprintln!("non-member at index 1: {err:?}");
++}
++
++// ---------------------------------------------- 3. duplicate and out-of-range
++
++#[test]
++fn native_out_of_range_index_is_rejected() {
++    let (a, b, c) = (member(1), member(2), member(3));
++    let t = treasury(&[&a, &b, &c], 2, 2);
++    let p = payout(&t);
++    // Index 3 does not exist (keys are 0..=2), even though b signs correctly.
++    let err = apply_payout(&t, &p, &[(0, &a), (3, &b)]).err().expect("rejected");
++    eprintln!("index 3 of 3 keys: {err:?}");
++}
++
++#[test]
++fn native_same_index_cannot_count_twice() {
++    let a = member(1);
++    let msg = [5u8; 32];
++    // Building a proof with index 0 twice is refused.
++    assert!(
++        IndexedSignatures::try_from_iter([(0, a.sign_payload(&msg)), (0, a.sign_payload(&msg))]).is_err()
++    );
++    // So is decoding one from the wire: u16 count, then (u16 index, 64-byte sig) entries.
++    let sig: Ed25519Signature = a.sign_payload(&msg);
++    let mut bytes = 2u16.to_le_bytes().to_vec();
++    for _ in 0..2 {
++        bytes.extend_from_slice(&0u16.to_le_bytes());
++        bytes.extend_from_slice(&sig.to_bytes());
++    }
++    let err = ChannelMultiSigProof::decode(&bytes, &()).err().expect("rejected");
++    eprintln!("decode with index 0 twice: {err:?}");
++}
++
++/// Not a signer-index bug, but the same effect at config level: the ledger does
++/// not reject a key listed twice in `accredited_keys`, so its holder can fill
++/// two indices alone. Members must check the key list for repeats.
++#[test]
++fn native_key_listed_twice_counts_twice() {
++    let (a, b) = (member(1), member(2));
++    let t = treasury(&[&a, &a, &b], 2, 2);
++    let p = payout(&t);
++    let outcome = apply_payout(&t, &p, &[(0, &a), (1, &a)]).expect("one holder, two slots");
++    assert_paid(&t, &p, outcome);
++}
++
++// ---------------------------------------------------- 2. membership change
++
++/// Rotate member c out and d in (same thresholds 2/2). Signed by 2 of the
++/// *current* set, over the config tx hash, with parent = current config id.
++#[test]
++fn native_membership_change_rotates_a_key() {
++    let (a, b, c, d) = (member(1), member(2), member(3), member(4));
++    let mut t = treasury(&[&a, &b, &c], 2, 2);
++
++    let op = config_op(t.channel, t.config_tip, &[&a, &b, &d], 2, 2);
++    let new_tip = op.id();
++    // The outgoing member c may be one of the two approvers.
++    let (state, _, _, _, deferred) = apply_config(&t, op, &[(0, &a), (2, &c)]).expect("2 of old set rotate c -> d");
++    deferred.verify().unwrap();
++    t.state = state;
++    t.config_tip = new_tip;
++
++    let p = payout(&t);
++    // c's signature at index 2 no longer counts.
++    assert!(apply_payout(&t, &p, &[(0, &a), (2, &c)]).is_err(), "removed key rejected");
++    // d's does.
++    let outcome = apply_payout(&t, &p, &[(0, &a), (2, &d)]).expect("new key accepted");
++    assert_paid(&t, &p, outcome);
++}
++
++/// Add a fourth member and raise k from 2 to 3 (k' stays 2).
++#[test]
++fn native_membership_change_adds_key_and_raises_threshold() {
++    let (a, b, c, d) = (member(1), member(2), member(3), member(4));
++    let mut t = treasury(&[&a, &b, &c], 2, 2);
++    let op = config_op(t.channel, t.config_tip, &[&a, &b, &c, &d], 2, 3);
++    t.state = apply_config(&t, op, &[(1, &b), (2, &c)]).expect("2 of 3 reconfigure").0;
++
++    let p = payout(&t);
++    assert!(apply_payout(&t, &p, &[(0, &a), (3, &d)]).is_err(), "2 signatures no longer enough");
++    let outcome = apply_payout(&t, &p, &[(0, &a), (1, &b), (3, &d)]).expect("3 of 4");
++    assert_paid(&t, &p, outcome);
++}
++
++#[test]
++fn native_config_change_below_threshold_is_rejected() {
++    let (a, b, c, d) = (member(1), member(2), member(3), member(4));
++    let t = treasury(&[&a, &b, &c], 2, 2);
++    let op = config_op(t.channel, t.config_tip, &[&a, &b, &d], 2, 2);
++    let err = apply_config(&t, op, &[(0, &a)]).err().expect("rejected");
++    eprintln!("config with 1 of 2 signatures: {err:?}");
++}
++
++#[test]
++fn native_config_change_with_empty_proof_is_rejected() {
++    // The empty proof that created the channel no longer works once it exists.
++    let (a, b, c, d) = (member(1), member(2), member(3), member(4));
++    let t = treasury(&[&a, &b, &c], 2, 2);
++    let op = config_op(t.channel, t.config_tip, &[&d], 1, 1);
++    let err = t
++        .state
++        .clone()
++        .try_apply_tx_operations::<_, HeaderId>(&t.eras, create_genesis_config_tx(op))
++        .err()
++        .expect("rejected");
++    eprintln!("config of existing channel with empty proof: {err:?}");
++}
++
++#[test]
++fn native_config_change_with_stale_parent_is_rejected() {
++    let (a, b, c, d) = (member(1), member(2), member(3), member(4));
++    let t = treasury(&[&a, &b, &c], 2, 2);
++    // Parent must be the current config id, not root.
++    let op = config_op(t.channel, MsgId::root(), &[&a, &b, &d], 2, 2);
++    let err = apply_config(&t, op, &[(0, &a), (1, &b)]).err().expect("rejected");
++    eprintln!("config with stale parent: {err:?}");
++}
++
++#[test]
++fn native_removed_member_cannot_reconfigure() {
++    let (a, b, c, d) = (member(1), member(2), member(3), member(4));
++    let mut t = treasury(&[&a, &b, &c], 2, 2);
++    let op = config_op(t.channel, t.config_tip, &[&a, &b, &d], 2, 2);
++    t.config_tip = op.id();
++    t.state = apply_config(&t, op, &[(0, &a), (1, &b)]).unwrap().0;
++    // c (removed) plus a try to put c back.
++    let op = config_op(t.channel, t.config_tip, &[&a, &b, &c], 2, 2);
++    assert!(apply_config(&t, op, &[(0, &a), (2, &c)]).is_err());
++}
++
++/// `ChannelConfigOp::new` checks k' <= n but not k <= n. A transfer threshold
++/// above the key count is accepted and makes payouts impossible until a
++/// config change (which k' members can still sign) lowers it.
++#[test]
++fn native_transfer_threshold_above_key_count_locks_payouts() {
++    let (a, b, c) = (member(1), member(2), member(3));
++    let mut t = treasury(&[&a, &b, &c], 2, 4);
++    let p = payout(&t);
++    assert!(apply_payout(&t, &p, &[(0, &a), (1, &b), (2, &c)]).is_err(), "3 of 4 impossible");
++
++    let op = config_op(t.channel, t.config_tip, &[&a, &b, &c], 2, 2);
++    t.state = apply_config(&t, op, &[(0, &a), (1, &b)]).expect("k' members recover").0;
++    let outcome = apply_payout(&t, &p, &[(0, &a), (1, &b)]).unwrap();
++    assert_paid(&t, &p, outcome);
++}
++
++// ----------------------------------------------------------------- 4. gas
++
++/// Execution gas of the payout = (channel_transfer + channel_withdraw) * k.
++#[test]
++fn native_payout_gas_scales_with_threshold() {
++    let profile = config().gas_profile;
++    let keys: Vec<_> = (1..=5).map(member).collect();
++    let refs: Vec<_> = keys.iter().collect();
++    let mut seen = Vec::new();
++    for k in [1u16, 2, 3, 5] {
++        let t = treasury(&refs, 1, k);
++        let p = payout(&t);
++        let signers: Vec<_> = (0..k).map(|i| (i, &keys[i as usize])).collect();
++        let (_, _, execution_gas, _, _) = apply_payout(&t, &p, &signers).unwrap();
++        let expected = profile
++            .channel_transfer
++            .checked_mul(u64::from(k))
++            .unwrap()
++            .checked_add(profile.channel_withdraw.checked_mul(u64::from(k)).unwrap())
++            .unwrap();
++        assert_eq!(execution_gas, expected, "k = {k}");
++        seen.push((k, execution_gas));
++    }
++    eprintln!("profile: transfer {:?} withdraw {:?}", profile.channel_transfer, profile.channel_withdraw);
++    eprintln!("payout execution gas by k: {seen:?}");
++}
++
++/// Config gas is priced on the configuration threshold in force before the op.
++#[test]
++fn native_config_gas_scales_with_configuration_threshold() {
++    let profile = config().gas_profile;
++    let (a, b, c, d) = (member(1), member(2), member(3), member(4));
++    let t = treasury(&[&a, &b, &c], 3, 2);
++    let op = config_op(t.channel, t.config_tip, &[&a, &b, &d], 2, 2);
++    let (_, _, execution_gas, _, _) = apply_config(&t, op, &[(0, &a), (1, &b), (2, &c)]).unwrap();
++    assert_eq!(execution_gas, profile.channel_config.checked_mul(3).unwrap());
++    let _: Gas = execution_gas;
++}

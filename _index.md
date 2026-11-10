@@ -22,7 +22,7 @@
 3. Proving vs signing: [[zksign-proving-vs-signing]], [[threshold-zksign-cosnark]]
 4. Unsigned transactions: [[unsigned-tx-tooling-bedrock]], [[tools/bedrock-kms]]
 
-Synthesis: [[mpc-custody-design-for-bedrock]], [[mpc-vs-native-multisig-bedrock]].
+Synthesis: [[mpc-custody-design-for-bedrock]], [[mpc-vs-native-multisig-bedrock]], [[channel-multisig-strategies]] (native k-of-n vs one FROST key vs one MuSig2 key, all three PoC'd).
 
 ## Shortlist
 

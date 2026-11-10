@@ -1,0 +1,433 @@
+diff --git a/ledger/Cargo.toml b/ledger/Cargo.toml
+index b6c9d0aa9..1fe3fcfe7 100644
+--- a/ledger/Cargo.toml
++++ b/ledger/Cargo.toml
+@@ -38,6 +38,8 @@ tracing                       = { workspace = true }
+ 
+ [dev-dependencies]
+ frost-ed25519 = "3.0.0"
++curve25519-dalek = { workspace = true }
++sha2 = "0.10"
+ divan      = { workspace = true }
+ lb-core    = { features = ["test-utils", "unsafe-test-functions"], workspace = true }
+ lb-zksign  = { workspace = true }
+diff --git a/ledger/src/lib.rs b/ledger/src/lib.rs
+index 373ff3f75..730df3e2d 100644
+--- a/ledger/src/lib.rs
++++ b/ledger/src/lib.rs
+@@ -1012,6 +1012,7 @@ const fn check_op_data_size<Id>(size: usize, config: &Config) -> Result<(), Ledg
+ #[cfg(test)]
+ mod tests {
+     mod frost_channel_poc;
++    mod musig2_single_key_channel_poc;
+     mod zksign_mpc_poc;
+     use std::num::NonZero;
+ 
+diff --git a/ledger/src/tests/musig2_single_key_channel_poc.rs b/ledger/src/tests/musig2_single_key_channel_poc.rs
+new file mode 100644
+index 000000000..0c8d5686a
+--- /dev/null
++++ b/ledger/src/tests/musig2_single_key_channel_poc.rs
+@@ -0,0 +1,402 @@
++//! PoC: a treasury channel whose only accredited key is a MuSig2 n-of-n
++//! aggregate Ed25519 key (thresholds 1 and 1).
++//!
++//! WARNING: UNAUDITED DEMO CRYPTOGRAPHY. The MuSig2 code below is a minimal,
++//! test-only sketch written for this PoC. It is not constant time, has no
++//! nonce-reuse protection beyond Rust move semantics, no serialization, no
++//! session state machine and no review. There is no Ed25519 MuSig2 standard
++//! (BIP-327 is secp256k1 only), so the hash tags and layout are ad hoc. Do not
++//! use it to hold funds.
++//!
++//! Scheme (MuSig2, Nick-Ruffing-Seurin 2021, two nonces per signer):
++//! - key aggregation: `a_i = H_agg(L, X_i)`, `X~ = sum a_i X_i`
++//! - round 1: each signer sends `R_i1 = r_i1 B`, `R_i2 = r_i2 B`
++//! - `b = H_non(X~, R1, R2, m)`, `R = R1 + b R2`
++//! - challenge `c = SHA-512(R || X~ || m) mod l` (exactly RFC 8032 Ed25519)
++//! - round 2: `s_i = r_i1 + b r_i2 + c a_i x_i`, `s = sum s_i`
++//!
++//! `(R, s)` then satisfies `s B = R + c X~`, an ordinary Ed25519 signature
++//! that Bedrock checks with `verify_strict` over the 32-byte tx hash.
++//! Participants use raw uniformly random scalars, not RFC 8032 seed-derived
++//! clamped keys: the verifier only sees the point `X~`.
++
++use curve25519_dalek::{edwards::EdwardsPoint, scalar::Scalar};
++use frost_ed25519 as frost;
++use lb_core::mantle::ops::channel::VerifiedChannelKeys;
++use lb_key_management_system_keys::keys::Ed25519Signature;
++use rand::{RngCore as _, rngs::OsRng};
++use sha2::{Digest as _, Sha512};
++
++use super::*;
++
++// ---------------------------------------------------------------------------
++// Minimal MuSig2 over Ed25519 (unaudited demo code).
++// ---------------------------------------------------------------------------
++
++/// SHA-512 of `tag || parts...`, reduced mod l. All parts but the last are
++/// fixed length, so the encoding is unambiguous.
++fn hash_to_scalar(tag: &[u8], parts: &[&[u8]]) -> Scalar {
++    let mut h = Sha512::new();
++    h.update(tag);
++    for p in parts {
++        h.update(p);
++    }
++    Scalar::from_bytes_mod_order_wide(&h.finalize().into())
++}
++
++fn random_scalar() -> Scalar {
++    let mut wide = [0u8; 64];
++    OsRng.fill_bytes(&mut wide);
++    Scalar::from_bytes_mod_order_wide(&wide)
++}
++
++struct Signer {
++    secret: Scalar,
++    public: EdwardsPoint,
++}
++
++impl Signer {
++    fn random() -> Self {
++        let secret = random_scalar();
++        Self { secret, public: EdwardsPoint::mul_base(&secret) }
++    }
++}
++
++/// Aggregated key context. Keys are sorted so aggregation is order independent.
++struct KeyAgg {
++    keys: Vec<[u8; 32]>,
++    coeffs: Vec<Scalar>,
++    agg: EdwardsPoint,
++}
++
++impl KeyAgg {
++    fn new(publics: &[EdwardsPoint]) -> Self {
++        let mut keys: Vec<[u8; 32]> = publics.iter().map(|p| p.compress().to_bytes()).collect();
++        keys.sort_unstable();
++        let list_hash: [u8; 64] = Sha512::digest(keys.concat()).into();
++        let coeffs: Vec<Scalar> = keys
++            .iter()
++            .map(|k| hash_to_scalar(b"MuSig2-Ed25519-demo/agg", &[&list_hash, k]))
++            .collect();
++        let agg = keys
++            .iter()
++            .zip(&coeffs)
++            .map(|(k, a)| {
++                curve25519_dalek::edwards::CompressedEdwardsY(*k).decompress().unwrap() * a
++            })
++            .sum::<EdwardsPoint>();
++        assert!(!agg.is_small_order() && agg.is_torsion_free(), "degenerate aggregate key");
++        Self { keys, coeffs, agg }
++    }
++
++    fn coeff(&self, public: &EdwardsPoint) -> Scalar {
++        let k = public.compress().to_bytes();
++        self.coeffs[self.keys.iter().position(|x| *x == k).expect("not a member")]
++    }
++
++    fn agg_bytes(&self) -> [u8; 32] {
++        self.agg.compress().to_bytes()
++    }
++
++    /// The aggregate as a Bedrock (small-order checked) Ed25519 public key.
++    fn public_key(&self) -> Ed25519PublicKey {
++        Ed25519PublicKey::from_bytes(&self.agg_bytes()).unwrap()
++    }
++}
++
++/// Secret nonce pair. Not `Clone`: `partial_sign` consumes it, so the same
++/// nonce cannot be used twice in safe code (reuse leaks the secret key).
++struct SecNonce(Scalar, Scalar);
++
++#[derive(Clone, Copy)]
++struct PubNonce(EdwardsPoint, EdwardsPoint);
++
++fn round1() -> (SecNonce, PubNonce) {
++    let (r1, r2) = (random_scalar(), random_scalar());
++    (SecNonce(r1, r2), PubNonce(EdwardsPoint::mul_base(&r1), EdwardsPoint::mul_base(&r2)))
++}
++
++struct Session {
++    b: Scalar,
++    r: EdwardsPoint,
++    c: Scalar,
++}
++
++impl Session {
++    fn new(keyagg: &KeyAgg, nonces: &[PubNonce], msg: &[u8]) -> Self {
++        let r1: EdwardsPoint = nonces.iter().map(|n| n.0).sum();
++        let r2: EdwardsPoint = nonces.iter().map(|n| n.1).sum();
++        let x = keyagg.agg_bytes();
++        let b = hash_to_scalar(
++            b"MuSig2-Ed25519-demo/non",
++            &[&x, r1.compress().as_bytes(), r2.compress().as_bytes(), msg],
++        );
++        let r = r1 + r2 * b;
++        // RFC 8032 challenge, no tag: H(R || A || M).
++        let c = hash_to_scalar(b"", &[r.compress().as_bytes(), &x, msg]);
++        Self { b, r, c }
++    }
++
++    fn partial_sign(&self, sec: SecNonce, signer: &Signer, keyagg: &KeyAgg) -> Scalar {
++        sec.0 + self.b * sec.1 + self.c * keyagg.coeff(&signer.public) * signer.secret
++    }
++
++    /// Lets the aggregator spot a bad partial signature and blame its sender.
++    fn partial_verify(&self, s_i: Scalar, nonce: PubNonce, public: &EdwardsPoint, keyagg: &KeyAgg) -> bool {
++        EdwardsPoint::mul_base(&s_i) == nonce.0 + nonce.1 * self.b + public * (self.c * keyagg.coeff(public))
++    }
++
++    fn aggregate(&self, partials: &[Scalar]) -> Ed25519Signature {
++        let s: Scalar = partials.iter().sum();
++        let mut bytes = [0u8; 64];
++        bytes[..32].copy_from_slice(self.r.compress().as_bytes());
++        bytes[32..].copy_from_slice(s.as_bytes());
++        Ed25519Signature::from_bytes(&bytes)
++    }
++}
++
++/// Runs both rounds. `in_round1` send nonces; of those, `in_round2` send a
++/// partial signature. Honest n-of-n signing is `in_round1 = in_round2 = all`.
++fn musig2_sign(signers: &[Signer], keyagg: &KeyAgg, in_round1: &[usize], in_round2: &[usize], msg: &[u8]) -> Ed25519Signature {
++    let mut secs: Vec<Option<SecNonce>> = (0..signers.len()).map(|_| None).collect();
++    let mut pubs = Vec::new();
++    for &i in in_round1 {
++        let (s, p) = round1();
++        secs[i] = Some(s);
++        pubs.push((i, p));
++    }
++    let nonces: Vec<PubNonce> = pubs.iter().map(|(_, p)| *p).collect();
++    let session = Session::new(keyagg, &nonces, msg);
++    let partials: Vec<Scalar> = in_round2
++        .iter()
++        .map(|&i| {
++            let s_i = session.partial_sign(secs[i].take().unwrap(), &signers[i], keyagg);
++            let nonce = pubs.iter().find(|(j, _)| *j == i).unwrap().1;
++            assert!(session.partial_verify(s_i, nonce, &signers[i].public, keyagg));
++            s_i
++        })
++        .collect();
++    session.aggregate(&partials)
++}
++
++fn three_signers() -> (Vec<Signer>, KeyAgg) {
++    let signers: Vec<Signer> = (0..3).map(|_| Signer::random()).collect();
++    let keyagg = KeyAgg::new(&signers.iter().map(|s| s.public).collect::<Vec<_>>());
++    (signers, keyagg)
++}
++
++// ---------------------------------------------------------------------------
++// Ledger helpers.
++// ---------------------------------------------------------------------------
++
++/// Every channel op in `ops` gets the same proof: index 0 (the only key), one
++/// signature over the tx hash.
++fn sign_ops(ops: &Ops, sig: Ed25519Signature) -> SignedOps<Preverified, StandardMode> {
++    let proof = Key::MultiSequencer(ChannelMultiSigProof::new(IndexedSignatures::from((0, sig))));
++    let keys: Vec<&Key> = ops.iter().map(|_| &proof).collect();
++    create_multi_signed_tx(ops.to_vec(), keys)
++}
++
++fn single_key_config(channel: ChannelId, parent: MsgId, key: Ed25519PublicKey) -> ChannelConfigOp {
++    ChannelConfigOp::new(
++        channel,
++        parent,
++        VerifiedChannelKeys::try_from_iter([key]).unwrap(),
++        0.into(),
++        0.into(),
++        NonZero::new(1).unwrap(),
++        NonZero::new(1).unwrap(),
++    )
++    .unwrap()
++}
++
++struct Treasury {
++    state: LedgerState,
++    eras: EraScheduledConfig,
++    channel: ChannelId,
++    config_id: MsgId,
++    deposited: NoteId,
++    value: u64,
++}
++
++/// Channel created by config alone, `[X~]`, thresholds 1/1, then funded by a
++/// deposit (ZkSign of the depositor).
++fn treasury(keyagg: &KeyAgg) -> Treasury {
++    let test_config = config();
++    let eras = single_era(test_config.clone());
++    let (depositor_sk, utxo) = utxo_with_sk();
++    let mut state = LedgerState::from_utxos([utxo], &test_config, GENESIS_POW_REWARD_POOL, &ConsensusExcludedKeys::empty());
++    let channel = ChannelId::from([43; 32]);
++
++    let config_op = single_key_config(channel, MsgId::root(), keyagg.public_key());
++    let config_id = config_op.id();
++    state = state.try_apply_tx_operations::<_, HeaderId>(&eras, create_genesis_config_tx(config_op)).unwrap().0;
++
++    let deposit = DepositOp { channel_id: channel, inputs: BoundedInputs::from(utxo.id()).into(), metadata: Metadata::new_unchecked(vec![]) };
++    let deposited = Utxo::new(deposit.op_id(), 0, utxo.note).id();
++    let tx = create_multi_signed_tx(vec![Op::ChannelDeposit(deposit)], vec![&Key::Zk(depositor_sk)]);
++    state = state.try_apply_tx_operations::<_, HeaderId>(&eras, tx).unwrap().0;
++    assert!(state.mantle_ledger.channels().is_channel_note(&deposited));
++
++    Treasury { state, eras, channel, config_id, deposited, value: utxo.note.value }
++}
++
++/// ChannelTransfer (recipient + change) + ChannelWithdraw of the payment.
++fn payout_ops(t: &Treasury) -> (Ops, NoteId, NoteId) {
++    let recipient_pk = ZkKey::from(BigUint::from(777u32)).to_public_key();
++    let change_label = ZkKey::from(BigUint::from(1u32)).to_public_key();
++    let pay = 6_000;
++    let transfer = ChannelTransferOp {
++        channel_id: t.channel,
++        inputs: BoundedInputs::from(t.deposited).into(),
++        outputs: Outputs::try_new(vec![Note::new(pay, recipient_pk), Note::new(t.value - pay, change_label)]).unwrap(),
++    };
++    let paid = transfer.utxos().next().unwrap().id();
++    let change = transfer.utxos().nth(1).unwrap().id();
++    let withdraw = ChannelWithdrawOp { channel_id: t.channel, inputs: BoundedInputs::from(paid).into() };
++    (Ops::new(FORK_DIGEST, [Op::ChannelTransfer(transfer), Op::ChannelWithdraw(withdraw)]), paid, change)
++}
++
++fn accepted(t: &Treasury, tx: SignedOps<Preverified, StandardMode>) -> LedgerState {
++    let (state, _, _, _, deferred) = t.state.clone().try_apply_tx_operations::<_, HeaderId>(&t.eras, tx).expect("ledger accepts");
++    deferred.verify().unwrap();
++    state
++}
++
++/// True if the ledger rejects `tx` for a bad channel signature (and not for
++/// some unrelated reason).
++fn rejected(t: &Treasury, tx: SignedOps<Preverified, StandardMode>) -> bool {
++    match t.state.clone().try_apply_tx_operations::<_, HeaderId>(&t.eras, tx) {
++        Ok(_) => false,
++        Err(e) => {
++            let e = format!("{e:?}");
++            assert!(e.contains("InvalidSignature"), "rejected for another reason: {e}");
++            true
++        }
++    }
++}
++
++// ---------------------------------------------------------------------------
++// Tests.
++// ---------------------------------------------------------------------------
++
++/// The MuSig2 output is a standard Ed25519 signature: Bedrock's own key type
++/// (`verify_strict`) and an independent verifier (ZF `frost-ed25519`, which
++/// implements the RFC 8032 equation) both accept it.
++#[test]
++fn musig2_output_is_standard_ed25519() {
++    let (signers, keyagg) = three_signers();
++    let msg = [9u8; 32];
++    let sig = musig2_sign(&signers, &keyagg, &[0, 1, 2], &[0, 1, 2], &msg);
++
++    keyagg.public_key().verify(&msg, &sig).expect("verify_strict accepts");
++    let vk = frost::VerifyingKey::deserialize(&keyagg.agg_bytes()).unwrap();
++    let fsig = frost::Signature::deserialize(&sig.to_bytes()).unwrap();
++    vk.verify(&msg, &fsig).expect("independent Ed25519 verifier accepts");
++
++    // Key aggregation does not depend on the order members are listed in.
++    let rev: Vec<_> = signers.iter().rev().map(|s| s.public).collect();
++    assert_eq!(KeyAgg::new(&rev).agg_bytes(), keyagg.agg_bytes());
++}
++
++/// Why the `a_i` coefficients matter (rogue-key attack). With naive
++/// aggregation `X = X1 + X2 + X3`, member 3 can announce
++/// `X3 = X_atk - X1 - X2` and then sign alone for the "joint" key. MuSig2
++/// coefficients break this: the aggregate is no longer `X_atk`.
++#[test]
++fn musig2_coefficients_stop_rogue_key() {
++    let (signers, _) = three_signers();
++    let attacker = Signer::random();
++    let rogue = attacker.public - signers[0].public - signers[1].public;
++    let naive = signers[0].public + signers[1].public + rogue;
++    assert_eq!(naive, attacker.public, "naive sum is a key the attacker alone controls");
++    let musig = KeyAgg::new(&[signers[0].public, signers[1].public, rogue]);
++    assert_ne!(musig.agg, attacker.public);
++}
++
++/// Full treasury flow: `[X~]` only, thresholds 1/1, deposit, then a payout
++/// (ChannelTransfer to recipient + change, ChannelWithdraw) signed by all 3
++/// members via MuSig2. One signature covers both ops (same tx hash).
++#[test]
++fn musig2_single_key_treasury_pays_recipient() {
++    let (signers, keyagg) = three_signers();
++    let t = treasury(&keyagg);
++    let (ops, paid, change) = payout_ops(&t);
++    let sig = musig2_sign(&signers, &keyagg, &[0, 1, 2], &[0, 1, 2], ops.hash().as_signing_bytes());
++
++    let state = accepted(&t, sign_ops(&ops, sig));
++    let channels = state.mantle_ledger().channels();
++    assert!(!channels.is_channel_note(&paid), "payment left the channel");
++    assert!(state.latest_utxos().contains(&paid), "recipient holds an ordinary note");
++    assert!(channels.is_channel_note(&change), "change stays under channel control");
++}
++
++/// n-of-n: two of three members cannot produce a valid signature.
++/// (a) all three send nonces, one withholds its partial signature;
++/// (b) only two members take part at all.
++/// Both results fail `verify_strict` and the ledger rejects the payout.
++#[test]
++fn musig2_two_of_three_is_rejected() {
++    let (signers, keyagg) = three_signers();
++    let t = treasury(&keyagg);
++    let (ops, _, _) = payout_ops(&t);
++    let msg = ops.hash();
++    let msg = msg.as_signing_bytes();
++
++    for (r1, r2) in [(&[0, 1, 2][..], &[0, 1][..]), (&[0, 1][..], &[0, 1][..]), (&[1, 2][..], &[1, 2][..])] {
++        let sig = musig2_sign(&signers, &keyagg, r1, r2, msg);
++        assert!(keyagg.public_key().verify(msg, &sig).is_err());
++        assert!(rejected(&t, sign_ops(&ops, sig)), "round1 {r1:?} round2 {r2:?}");
++    }
++
++    // Two members aggregating just their own keys get a valid signature, but
++    // for a key the channel does not accredit.
++    let pair = KeyAgg::new(&[signers[0].public, signers[1].public]);
++    let sig = musig2_sign(&signers, &pair, &[0, 1], &[0, 1], msg);
++    pair.public_key().verify(msg, &sig).unwrap();
++    assert!(rejected(&t, sign_ops(&ops, sig)));
++}
++
++/// A full 3-of-3 signature over a different tx does not authorise this one.
++#[test]
++fn musig2_signature_over_another_tx_is_rejected() {
++    let (signers, keyagg) = three_signers();
++    let t = treasury(&keyagg);
++    let (ops, _, _) = payout_ops(&t);
++    let other = Ops::new(FORK_DIGEST, [Op::ChannelWithdraw(ChannelWithdrawOp {
++        channel_id: t.channel,
++        inputs: BoundedInputs::from(t.deposited).into(),
++    })]);
++    let sig = musig2_sign(&signers, &keyagg, &[0, 1, 2], &[0, 1, 2], other.hash().as_signing_bytes());
++    assert!(rejected(&t, sign_ops(&ops, sig)));
++}
++
++/// Membership change: member 2 is replaced by member 3. The old aggregate
++/// signs a ChannelConfigOp accrediting the new aggregate alone. Afterwards
++/// the old aggregate can no longer pay, the new one can. The new aggregate
++/// could not have rotated the channel itself.
++#[test]
++fn musig2_rotation_signed_by_old_aggregate() {
++    let (mut signers, old) = three_signers();
++    let mut t = treasury(&old);
++    signers.push(Signer::random());
++    let new = KeyAgg::new(&[signers[0].public, signers[1].public, signers[3].public]);
++
++    let rotate = Ops::new(FORK_DIGEST, [Op::ChannelConfig(single_key_config(t.channel, t.config_id, new.public_key()))]);
++    let msg = rotate.hash();
++
++    // The incoming group cannot rotate the channel on its own.
++    let by_new = musig2_sign(&signers, &new, &[0, 1, 3], &[0, 1, 3], msg.as_signing_bytes());
++    assert!(rejected(&t, sign_ops(&rotate, by_new)));
++
++    let by_old = musig2_sign(&signers, &old, &[0, 1, 2], &[0, 1, 2], msg.as_signing_bytes());
++    t.state = accepted(&t, sign_ops(&rotate, by_old));
++
++    let (ops, paid, _) = payout_ops(&t);
++    let m = ops.hash();
++    let old_sig = musig2_sign(&signers, &old, &[0, 1, 2], &[0, 1, 2], m.as_signing_bytes());
++    assert!(rejected(&t, sign_ops(&ops, old_sig)), "old aggregate is no longer accredited");
++    let new_sig = musig2_sign(&signers, &new, &[0, 1, 3], &[0, 1, 3], m.as_signing_bytes());
++    let state = accepted(&t, sign_ops(&ops, new_sig));
++    assert!(state.latest_utxos().contains(&paid));
++}

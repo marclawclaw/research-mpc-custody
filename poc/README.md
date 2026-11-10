@@ -12,8 +12,18 @@ Both PoCs are ordinary tests inside Bedrock's `logos-blockchain-ledger` crate. T
 ```sh
 git clone https://github.com/logos-blockchain/logos-blockchain && cd logos-blockchain
 git checkout ce15ec1 && git apply ../research-mpc-custody/poc/bedrock-ledger.patch
-cargo test -p logos-blockchain-ledger frost_        # 3 tests
+cargo test -p logos-blockchain-ledger frost_channel_poc   # 4 tests
 ```
+
+## Channel multisig strategies
+
+Three more patches apply on top of `bedrock-ledger.patch`, one at a time ([[channel-multisig-strategies]]):
+
+| Directory | Strategy | Tests |
+|---|---|---|
+| `native-channel-multisig/` | Plain Ed25519 k-of-n channel | 17 |
+| `frost-single-key-channel/` | One FROST key, thresholds 1 | 7 |
+| `musig2-single-key-channel/` | One MuSig2 key, thresholds 1 (demo MuSig2) | 6 |
 
 ## 2. Threshold ZkSign via co-circom
 

@@ -27,7 +27,7 @@ Everything marked ✓ is backed by code or a PoC against the Bedrock ledger at `
   - funded by `ChannelDeposit`;
   - paid out with `ChannelTransfer` (re-assign to the recipient's `pk`) + `ChannelWithdraw` (release), each needing `transfer_threshold` Ed25519 signatures.
   
-  Any accredited key can be MPC. Verified end to end ([[frost-ed25519-channel-keys]]).
+  Any accredited key can be MPC. Verified end to end ([[frost-ed25519-channel-keys]]). Three ways to hold the keys (native k-of-n, one FROST key, one MuSig2 key) are compared and PoC'd in [[channel-multisig-strategies]].
 - **Downsides** ([[bedrock-channel-multisig]]):
   - the custody structure (keys, thresholds, config history) is public;
   - each payout reveals which members signed;

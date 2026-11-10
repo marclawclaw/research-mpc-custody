@@ -32,6 +32,8 @@ Both run against the real Bedrock ledger (`LedgerState::try_apply_tx_operations`
 - `frost_channel_poc.rs`: two FROST-Ed25519 2-of-3 groups and one plain key form a 2-of-3 channel. A treasury channel created by config alone pays a recipient with `ChannelTransfer` + `ChannelWithdraw`; below-threshold and wrong-tx signatures are rejected; the depositor cannot spend the locked note.
 - `poc/zksign-co-circom/run.sh`: dealerless 3-party keygen, MPC public-key derivation, MPC ZkSign of a `Transfer`; ledger accepts it and rejects the proof on another tx.
 
+- `poc/native-channel-multisig/`, `poc/frost-single-key-channel/`, `poc/musig2-single-key-channel/`: the three ways to hold a treasury channel's keys ([[channel-multisig-strategies]]).
+
 ## Related research
 - [research-multisig-sovereign](https://github.com/marclawclaw/research-multisig-sovereign): sovereign multisig and FROST
 - [research-cross-chain-dex: tss-custody-vault](https://github.com/marclawclaw/research-cross-chain-dex/blob/main/patterns/tss-custody-vault.md): Thorchain GG20 TSS vaults

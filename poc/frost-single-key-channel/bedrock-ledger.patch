@@ -1,0 +1,429 @@
+diff --git a/ledger/src/lib.rs b/ledger/src/lib.rs
+index 373ff3f75..273776d08 100644
+--- a/ledger/src/lib.rs
++++ b/ledger/src/lib.rs
+@@ -1012,6 +1012,7 @@ const fn check_op_data_size<Id>(size: usize, config: &Config) -> Result<(), Ledg
+ #[cfg(test)]
+ mod tests {
+     mod frost_channel_poc;
++    mod frost_single_key_channel_poc;
+     mod zksign_mpc_poc;
+     use std::num::NonZero;
+ 
+diff --git a/ledger/src/tests/frost_single_key_channel_poc.rs b/ledger/src/tests/frost_single_key_channel_poc.rs
+new file mode 100644
+index 000000000..4f2cef0fa
+--- /dev/null
++++ b/ledger/src/tests/frost_single_key_channel_poc.rs
+@@ -0,0 +1,411 @@
++//! PoC: a treasury channel that accredits ONE Ed25519 key, which is a
++//! FROST-Ed25519 t-of-n group key, with transfer and configuration thresholds
++//! of 1 ("one key + FROST").
++//!
++//! Keys come from a real DKG (`frost::keys::dkg` part1/2/3), not a dealer.
++//! Every payout carries one ordinary Ed25519 signature at key index 0, so the
++//! ledger never sees t or n.
++
++use std::collections::BTreeMap;
++
++use frost_ed25519 as frost;
++use frost::keys::{KeyPackage, PublicKeyPackage, dkg, refresh, repairable};
++use lb_binary_codec::canonical::BinaryEncode as _;
++use lb_core::{
++    mantle::ops::channel::VerifiedChannelKeys,
++    proofs::channel_multi_sig_proof::codec::calculate_channel_multi_sig_proof_byte_size,
++};
++use lb_key_management_system_keys::keys::Ed25519Signature;
++use rand::rngs::OsRng;
++
++use super::*;
++
++fn id(i: u16) -> frost::Identifier {
++    i.try_into().unwrap()
++}
++
++/// One FROST group, simulated in one process. Participant `i` has identifier `i` (1-based).
++#[derive(Clone)]
++struct FrostGroup {
++    key_packages: BTreeMap<frost::Identifier, KeyPackage>,
++    pubkeys: PublicKeyPackage,
++}
++
++/// Round-1 packages a participant receives: everyone's but its own.
++fn others<T: Clone>(all: &BTreeMap<frost::Identifier, T>, me: frost::Identifier) -> BTreeMap<frost::Identifier, T> {
++    all.iter().filter(|(k, _)| **k != me).map(|(k, v)| (*k, v.clone())).collect()
++}
++
++impl FrostGroup {
++    /// Pedersen DKG with proof of knowledge (`frost::keys::dkg`). No dealer ever holds the key.
++    fn dkg(n: u16, t: u16) -> Self {
++        let ids: Vec<_> = (1..=n).map(id).collect();
++        let mut r1_secret = BTreeMap::new();
++        let mut r1_public = BTreeMap::new();
++        for me in &ids {
++            let (s, p) = dkg::part1(*me, n, t, &mut OsRng).unwrap();
++            r1_secret.insert(*me, s);
++            r1_public.insert(*me, p);
++        }
++        let mut r2_secret = BTreeMap::new();
++        let mut inbox: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
++        for me in &ids {
++            let (s, out) = dkg::part2(r1_secret.remove(me).unwrap(), &others(&r1_public, *me)).unwrap();
++            r2_secret.insert(*me, s);
++            for (to, pkg) in out {
++                inbox.entry(to).or_default().insert(*me, pkg);
++            }
++        }
++        let mut key_packages = BTreeMap::new();
++        let mut pubkeys = None;
++        for me in &ids {
++            let (kp, pkp) = dkg::part3(&r2_secret[me], &others(&r1_public, *me), &inbox[me]).unwrap();
++            // Every participant derives the same public key package.
++            assert!(pubkeys.as_ref().is_none_or(|p| *p == pkp));
++            pubkeys = Some(pkp);
++            key_packages.insert(*me, kp);
++        }
++        Self { key_packages, pubkeys: pubkeys.unwrap() }
++    }
++
++    /// DKG-based share refresh (`frost::keys::refresh`) among `keep` only. Participants
++    /// left out are removed. `t` is the threshold the refresh is run with.
++    fn refresh(&self, keep: &[u16], t: u16) -> Result<Self, frost::Error> {
++        let n = keep.len() as u16;
++        let ids: Vec<_> = keep.iter().copied().map(id).collect();
++        let mut r1_secret = BTreeMap::new();
++        let mut r1_public = BTreeMap::new();
++        for me in &ids {
++            let (s, p) = refresh::refresh_dkg_part1(*me, n, t, &mut OsRng)?;
++            r1_secret.insert(*me, s);
++            r1_public.insert(*me, p);
++        }
++        let mut r2_secret = BTreeMap::new();
++        let mut inbox: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
++        for me in &ids {
++            let (s, out) = refresh::refresh_dkg_part2(r1_secret.remove(me).unwrap(), &others(&r1_public, *me))?;
++            r2_secret.insert(*me, s);
++            for (to, pkg) in out {
++                inbox.entry(to).or_default().insert(*me, pkg);
++            }
++        }
++        let mut key_packages = BTreeMap::new();
++        let mut pubkeys = None;
++        for me in &ids {
++            let (kp, pkp) = refresh::refresh_dkg_shares(
++                &r2_secret[me],
++                &others(&r1_public, *me),
++                &inbox[me],
++                self.pubkeys.clone(),
++                self.key_packages[me].clone(),
++            )?;
++            assert!(pubkeys.as_ref().is_none_or(|p| *p == pkp));
++            pubkeys = Some(pkp);
++            key_packages.insert(*me, kp);
++        }
++        Ok(Self { key_packages, pubkeys: pubkeys.unwrap() })
++    }
++
++    fn public_key(&self) -> Ed25519PublicKey {
++        let bytes: [u8; 32] = self.pubkeys.verifying_key().serialize().unwrap().try_into().unwrap();
++        Ed25519PublicKey::from_bytes(&bytes).unwrap()
++    }
++
++    /// Two-round FROST signing by the given participants, through the public API.
++    fn try_sign(&self, participants: &[u16], msg: &[u8]) -> Result<Ed25519Signature, frost::Error> {
++        let signers: Vec<_> = participants.iter().copied().map(id).collect();
++        let mut nonces = BTreeMap::new();
++        let mut commitments = BTreeMap::new();
++        for s in &signers {
++            let (n, c) = frost::round1::commit(self.key_packages[s].signing_share(), &mut OsRng);
++            nonces.insert(*s, n);
++            commitments.insert(*s, c);
++        }
++        let package = frost::SigningPackage::new(commitments, msg);
++        let mut shares = BTreeMap::new();
++        for s in &signers {
++            shares.insert(*s, frost::round2::sign(&package, &nonces[s], &self.key_packages[s])?);
++        }
++        let sig = frost::aggregate(&package, &shares, &self.pubkeys)?;
++        let bytes: [u8; 64] = sig.serialize().unwrap().try_into().unwrap();
++        Ok(Ed25519Signature::from_bytes(&bytes))
++    }
++
++    fn sign(&self, participants: &[u16], msg: &[u8]) -> Ed25519Signature {
++        self.try_sign(participants, msg).unwrap()
++    }
++}
++
++/// The only proof a single-key treasury ever carries: one signature, key index 0.
++fn single_key_proof(sig: Ed25519Signature) -> ChannelMultiSigProof {
++    ChannelMultiSigProof::new(IndexedSignatures::try_from_iter([(0, sig)]).unwrap())
++}
++
++fn single_key_config(channel: ChannelId, parent: MsgId, key: Ed25519PublicKey) -> ChannelConfigOp {
++    ChannelConfigOp::new(
++        channel,
++        parent,
++        VerifiedChannelKeys::try_from_iter([key]).unwrap(),
++        0.into(),
++        0.into(),
++        NonZero::new(1).unwrap(),
++        NonZero::new(1).unwrap(),
++    )
++    .expect("one key with both thresholds at 1 is a valid channel config")
++}
++
++struct Treasury {
++    state: LedgerState,
++    eras: EraScheduledConfig,
++    id: ChannelId,
++    note: NoteId,
++}
++
++/// Creates the treasury by config alone (empty proof), accrediting `group` only,
++/// and deposits one 10 000 note into it.
++fn treasury(group: &FrostGroup) -> Treasury {
++    let test_config = config();
++    let eras = single_era(test_config.clone());
++    let (depositor_sk, utxo) = utxo_with_sk();
++    let mut state = LedgerState::from_utxos(
++        [utxo],
++        &test_config,
++        GENESIS_POW_REWARD_POOL,
++        &ConsensusExcludedKeys::empty(),
++    );
++    let id = ChannelId::from([43; 32]);
++    let config_op = single_key_config(id, MsgId::root(), group.public_key());
++    state = state
++        .try_apply_tx_operations::<_, HeaderId>(&eras, create_genesis_config_tx(config_op))
++        .unwrap()
++        .0;
++
++    let deposit = DepositOp { channel_id: id, inputs: BoundedInputs::from(utxo.id()).into(), metadata: Metadata::new_unchecked(vec![]) };
++    let note = Utxo::new(deposit.op_id(), 0, utxo.note).id();
++    let tx = create_multi_signed_tx(vec![Op::ChannelDeposit(deposit)], vec![&Key::Zk(depositor_sk)]);
++    state = state.try_apply_tx_operations::<_, HeaderId>(&eras, tx).unwrap().0;
++    assert!(state.mantle_ledger.channels().is_channel_note(&note));
++    Treasury { state, eras, id, note }
++}
++
++struct Payout {
++    ops: Ops,
++    paid: NoteId,
++    change: NoteId,
++}
++
++/// ChannelTransfer (`amount` to the recipient, the rest as change) + ChannelWithdraw of the payment.
++fn payout(channel_id: ChannelId, input: NoteId, input_value: u64, amount: u64, recipient: u64) -> Payout {
++    let recipient_pk = ZkKey::from(BigUint::from(recipient)).to_public_key();
++    let label_pk = ZkKey::from(BigUint::from(1u32)).to_public_key(); // channel notes are channel-controlled
++    let transfer = ChannelTransferOp {
++        channel_id,
++        inputs: BoundedInputs::from(input).into(),
++        outputs: Outputs::try_new(vec![Note::new(amount, recipient_pk), Note::new(input_value - amount, label_pk)]).unwrap(),
++    };
++    let paid = transfer.utxos().next().unwrap().id();
++    let change = transfer.utxos().nth(1).unwrap().id();
++    let withdraw = ChannelWithdrawOp { channel_id, inputs: BoundedInputs::from(paid).into() };
++    Payout { ops: Ops::new(FORK_DIGEST, [Op::ChannelTransfer(transfer), Op::ChannelWithdraw(withdraw)]), paid, change }
++}
++
++/// Submits `ops` with `proof` on every op. Returns the new state, or the ledger's error.
++fn submit(t: &Treasury, ops: &Ops, proof: &ChannelMultiSigProof) -> Result<LedgerState, String> {
++    let keys: Vec<_> = ops.iter().map(|_| Key::MultiSequencer(proof.clone())).collect();
++    let signed = create_multi_signed_tx(ops.to_vec(), keys.iter().collect());
++    let (state, _, _, _, deferred) =
++        t.state.clone().try_apply_tx_operations::<_, HeaderId>(&t.eras, signed).map_err(|e| format!("{e:?}"))?;
++    deferred.verify().map_err(|e| format!("{e:?}"))?;
++    Ok(state)
++}
++
++fn assert_paid(state: &LedgerState, p: &Payout) {
++    let channels = state.mantle_ledger().channels();
++    assert!(!channels.is_channel_note(&p.paid), "payment left the channel");
++    assert!(state.latest_utxos().contains(&p.paid), "recipient holds an ordinary note");
++    assert!(channels.is_channel_note(&p.change), "change stays in the channel");
++}
++
++/// 1. Config validation: one key with thresholds 1 is valid, and the created
++/// channel state holds exactly that.
++#[test]
++fn frost1_single_key_config_is_valid() {
++    let group = FrostGroup::dkg(3, 2);
++    let t = treasury(&group);
++    let channel = t.state.mantle_ledger().channels().channel_state(&t.id).unwrap();
++    assert_eq!(channel.accredited_keys.len(), 1);
++    assert_eq!(channel.configuration_threshold, 1);
++    assert_eq!(channel.transfer_threshold, 1);
++
++    // A configuration threshold above the key count is refused ...
++    let one_key = || VerifiedChannelKeys::try_from_iter([group.public_key()]).unwrap();
++    assert!(ChannelConfigOp::new(t.id, MsgId::root(), one_key(), 0.into(), 0.into(), NonZero::new(2).unwrap(), NonZero::new(1).unwrap()).is_err());
++    // ... but a transfer threshold above it is not checked (it would freeze payouts until reconfigured).
++    assert!(ChannelConfigOp::new(t.id, MsgId::root(), one_key(), 0.into(), 0.into(), NonZero::new(1).unwrap(), NonZero::new(2).unwrap()).is_ok());
++}
++
++/// 2 + 4. Any two of three pay out; a second payout uses a different pair. The proof is one
++/// signature at index 0, 68 bytes, the same whichever pair signed.
++#[test]
++fn frost1_any_two_of_three_pay_out() {
++    let group = FrostGroup::dkg(3, 2);
++    let mut t = treasury(&group);
++
++    // Participants 1 and 2 pay 6 000.
++    let p1 = payout(t.id, t.note, 10_000, 6_000, 777);
++    let proof = single_key_proof(group.sign(&[1, 2], p1.ops.hash().as_signing_bytes()));
++    let entries: Vec<_> = proof.signatures().iter().map(|(i, _)| *i).collect();
++    assert_eq!(entries, vec![0], "one signature, at key index 0");
++    assert_eq!(proof.encoded_length(), calculate_channel_multi_sig_proof_byte_size(1));
++    assert_eq!(proof.encoded_length(), 68);
++    t.state = submit(&t, &p1.ops, &proof).expect("pair {1,2} pays");
++    assert_paid(&t.state, &p1);
++
++    // Participants 2 and 3 pay 1 000 out of the change.
++    let p2 = payout(t.id, p1.change, 4_000, 1_000, 778);
++    let proof2 = single_key_proof(group.sign(&[2, 3], p2.ops.hash().as_signing_bytes()));
++    assert_eq!(proof2.encoded_length(), 68);
++    t.state = submit(&t, &p2.ops, &proof2).expect("pair {2,3} pays");
++    assert_paid(&t.state, &p2);
++
++    // Pair {1,3} also produces a valid signature for the same group key.
++    let p3 = payout(t.id, p2.change, 3_000, 500, 779);
++    submit(&t, &p3.ops, &single_key_proof(group.sign(&[1, 3], p3.ops.hash().as_signing_bytes()))).expect("pair {1,3} pays");
++}
++
++/// 2. One participant alone cannot authorise a payout.
++#[test]
++fn frost1_one_participant_alone_cannot_sign() {
++    let group = FrostGroup::dkg(3, 2);
++    let t = treasury(&group);
++    let p = payout(t.id, t.note, 10_000, 6_000, 777);
++    let msg = p.ops.hash();
++    let msg = msg.as_signing_bytes();
++
++    // (a) The FROST API refuses to make a signature share with fewer than t commitments.
++    assert!(matches!(group.try_sign(&[1], msg), Err(frost::Error::IncorrectNumberOfCommitments)));
++
++    // (b) A signing package for two, where only one share is produced: aggregation refuses.
++    let (n1, c1) = frost::round1::commit(group.key_packages[&id(1)].signing_share(), &mut OsRng);
++    let (_n2, c2) = frost::round1::commit(group.key_packages[&id(2)].signing_share(), &mut OsRng);
++    let package = frost::SigningPackage::new(BTreeMap::from([(id(1), c1), (id(2), c2)]), msg);
++    let share1 = frost::round2::sign(&package, &n1, &group.key_packages[&id(1)]).unwrap();
++    assert!(matches!(
++        frost::aggregate(&package, &BTreeMap::from([(id(1), share1)]), &group.pubkeys),
++        Err(frost::Error::UnknownIdentifier)
++    ));
++
++    // (c) Bypassing FROST: participant 1 signs plain Ed25519 with its secret share. The ledger rejects it.
++    let share_key = frost::SigningKey::deserialize(&group.key_packages[&id(1)].signing_share().serialize()).unwrap();
++    let bytes: [u8; 64] = share_key.sign(OsRng, msg).serialize().unwrap().try_into().unwrap();
++    let rogue = single_key_proof(Ed25519Signature::from_bytes(&bytes));
++    assert!(submit(&t, &p.ops, &rogue).unwrap_err().contains("InvalidSignature"));
++
++    // Sanity: the same tx with a 2-of-3 signature is accepted.
++    submit(&t, &p.ops, &single_key_proof(group.sign(&[1, 3], msg))).unwrap();
++}
++
++/// 3a. Refresh (DKG flavour) among {1,2} removes participant 3 and keeps the group key,
++/// so the channel config is untouched.
++#[test]
++fn frost1_refresh_removes_participant_same_key() {
++    let old = FrostGroup::dkg(3, 2);
++    let t = treasury(&old);
++    let new = old.refresh(&[1, 2], 2).expect("refresh among 2 of 3 with t = 2");
++    assert_eq!(new.pubkeys.verifying_key(), old.pubkeys.verifying_key(), "same group key");
++    assert_eq!(new.key_packages.len(), 2);
++    assert_ne!(new.key_packages[&id(1)].signing_share(), old.key_packages[&id(1)].signing_share());
++
++    let p = payout(t.id, t.note, 10_000, 6_000, 777);
++    let msg = p.ops.hash();
++    let msg = msg.as_signing_bytes();
++
++    // The refreshed pair pays, with no ChannelConfigOp.
++    let state = submit(&t, &p.ops, &single_key_proof(new.sign(&[1, 2], msg))).expect("refreshed {1,2} pays");
++    assert_paid(&state, &p);
++
++    // Removed participant 3 (old share) + a refreshed participant: the shares don't combine.
++    let mut mixed = new.clone();
++    mixed.key_packages.insert(id(3), old.key_packages[&id(3)].clone());
++    let mut mixed_pub = old.pubkeys.verifying_shares().clone();
++    mixed_pub.insert(id(1), *new.pubkeys.verifying_shares().get(&id(1)).unwrap());
++    mixed.pubkeys = PublicKeyPackage::new(mixed_pub, *old.pubkeys.verifying_key(), Some(2));
++    assert!(matches!(mixed.try_sign(&[1, 3], msg), Err(frost::Error::InvalidSignature)), "old share 3 + new share 1 do not aggregate");
++
++    // Caveat: refresh only removes 3 if 1 and 2 delete their OLD shares. Old 1 + old 3 still sign.
++    submit(&t, &p.ops, &single_key_proof(old.sign(&[1, 3], msg))).expect("old shares still valid");
++}
++
++/// 3a. Refresh cannot change t (in either direction), and needs at least t participants.
++#[test]
++fn frost1_refresh_cannot_change_threshold() {
++    let g = FrostGroup::dkg(3, 2);
++    assert!(matches!(g.refresh(&[1, 2, 3], 3), Err(frost::Error::InvalidMinSigners)), "raise t: refused");
++    let g3 = FrostGroup::dkg(4, 3);
++    assert!(matches!(g3.refresh(&[1, 2, 3], 2), Err(frost::Error::InvalidMinSigners)), "lower t: refused");
++    assert!(matches!(g.refresh(&[1], 2), Err(frost::Error::InvalidMaxSigners)), "fewer than t participants: refused");
++}
++
++/// 3a (extra). Adding a participant with the same group key, using the repairable-share
++/// protocol (`frost::keys::repairable`) for a NEW identifier. Not the documented use.
++/// (The frost-ed25519 wrapper of `repair_share_part1` has an unused generic `C`, hence the turbofish.)
++#[test]
++fn frost1_repair_enrolls_new_participant_same_key() {
++    let g = FrostGroup::dkg(3, 2);
++    let t = treasury(&g);
++    let helpers = [id(1), id(2)];
++    let newcomer = id(4);
++    // Each helper splits its contribution into deltas, one per helper.
++    let deltas: BTreeMap<_, _> = helpers
++        .iter()
++        .map(|h| (*h, repairable::repair_share_part1::<frost::Ed25519Sha512, _>(&helpers, &g.key_packages[h], &mut OsRng, newcomer).unwrap()))
++        .collect();
++    // Each helper sums the deltas it received into one sigma for the newcomer.
++    let sigmas: Vec<_> = helpers
++        .iter()
++        .map(|j| repairable::repair_share_part2(&helpers.iter().map(|h| deltas[h][j]).collect::<Vec<_>>()))
++        .collect();
++    let kp4 = repairable::repair_share_part3(&sigmas, newcomer, &g.pubkeys).unwrap();
++
++    let mut g4 = g.clone();
++    let mut shares = g.pubkeys.verifying_shares().clone();
++    shares.insert(newcomer, *kp4.verifying_share());
++    g4.pubkeys = PublicKeyPackage::new(shares, *g.pubkeys.verifying_key(), Some(2));
++    g4.key_packages.insert(newcomer, kp4);
++
++    let p = payout(t.id, t.note, 10_000, 6_000, 777);
++    let state = submit(&t, &p.ops, &single_key_proof(g4.sign(&[3, 4], p.ops.hash().as_signing_bytes())))
++        .expect("old member 3 + new member 4 pay under the unchanged key");
++    assert_paid(&state, &p);
++}
++
++/// 3b. Rotation: the old group signs a ChannelConfigOp that accredits a brand-new
++/// group (here 3-of-5). Afterwards only the new group authorises payouts.
++#[test]
++fn frost1_rotate_to_new_group() {
++    let old = FrostGroup::dkg(3, 2);
++    let mut t = treasury(&old);
++    let new = FrostGroup::dkg(5, 3);
++    assert_ne!(new.public_key(), old.public_key());
++
++    let parent = t.state.mantle_ledger().channels().channel_state(&t.id).unwrap().config_tip_hash;
++    let rotate = single_key_config(t.id, parent, new.public_key());
++    let ops = Ops::new(FORK_DIGEST, [Op::ChannelConfig(rotate.clone())]);
++    let msg = ops.hash();
++
++    // The new group cannot rotate itself in.
++    assert!(submit(&t, &ops, &single_key_proof(new.sign(&[1, 2, 3], msg.as_signing_bytes()))).unwrap_err().contains("InvalidSignature"));
++    // The old group (2 of 3) can.
++    t.state = submit(&t, &ops, &single_key_proof(old.sign(&[1, 3], msg.as_signing_bytes()))).expect("old group rotates");
++    let channel = t.state.mantle_ledger().channels().channel_state(&t.id).unwrap();
++    assert_eq!(channel.accredited_keys.len(), 1);
++    assert_eq!(channel.config_tip_hash, rotate.id());
++
++    let p = payout(t.id, t.note, 10_000, 6_000, 777);
++    let msg = p.ops.hash();
++    let msg = msg.as_signing_bytes();
++    assert!(submit(&t, &p.ops, &single_key_proof(old.sign(&[1, 2], msg))).unwrap_err().contains("InvalidSignature"), "old group no longer pays");
++    assert!(new.try_sign(&[1, 2], msg).is_err(), "new group needs 3 of 5");
++    let state = submit(&t, &p.ops, &single_key_proof(new.sign(&[2, 4, 5], msg))).expect("new group pays");
++    assert_paid(&state, &p);
++}
